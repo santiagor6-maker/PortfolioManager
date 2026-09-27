@@ -167,6 +167,12 @@ export function analyzeScope(ctx: Context, scope: Scope, ccy: Ccy, asOf: IsoDate
   }
 }
 
+/** A subtotal of the classes the user picked, with or without cash. One class alone keeps its benchmarks. */
+export function analyzeMix(ctx: Context, buckets: readonly string[], cash: boolean, ccy: Ccy, asOf: IsoDate, window: Window): ScopeResult {
+  const benches = buckets.length === 1 && !cash ? ctx.benchmarks.filter((b) => b.buckets.includes(buckets[0]!)) : [];
+  return analyzeScope(ctx, { kind: 'mix', buckets, cash }, ccy, asOf, window, benches);
+}
+
 export interface PositionRow extends ValuedPosition {
   name: string;
   accountName: string;

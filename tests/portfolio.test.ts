@@ -52,6 +52,37 @@ describe('portfolio series', () => {
     expect(p.periods.map((x) => x.r)).toEqual([expect.closeTo(0.075, 12), expect.closeTo(39_200_000 / 239_000_000, 12)]);
   });
 
+  it('mix without cash adds up the chosen classes', () => {
+    const mix = portfolioSeries(book, ledger, { kind: 'mix', buckets: ['acciones_usd', 'acciones_cop'], cash: false }, 'COP', dates);
+    const usd = portfolioSeries(book, ledger, { kind: 'bucket', bucket: 'acciones_usd' }, 'COP', dates);
+    const cop = portfolioSeries(book, ledger, { kind: 'bucket', bucket: 'acciones_cop' }, 'COP', dates);
+    expect(mix.values.map((v) => v.value.toNumber())).toEqual(usd.values.map((v, i) => v.value.plus(cop.values[i]!.value).toNumber()));
+    expect(mix.flows.map((f) => f.amount.toNumber()).sort()).toEqual([...usd.flows, ...cop.flows].map((f) => f.amount.toNumber()).sort());
+  });
+
+  it('mix with cash: every class plus cash is the total; leaving a class out subtracts it exactly', () => {
+    const total = portfolioSeries(book, ledger, { kind: 'total' }, 'COP', dates);
+    const all = portfolioSeries(book, ledger, { kind: 'mix', buckets: ['acciones_usd', 'acciones_cop'], cash: true }, 'COP', dates);
+    expect(all.values.map((v) => v.value.toNumber())).toEqual(total.values.map((v) => v.value.toNumber()));
+    expect(all.flows.map((f) => f.amount.toNumber())).toEqual(total.flows.map((f) => f.amount.toNumber()));
+
+    // Without COP stocks: the COP buy is money out (−4 M) and the dividend money in (+100 k), at their dates.
+    const ex = portfolioSeries(book, ledger, { kind: 'mix', buckets: ['acciones_usd'], cash: true }, 'COP', dates);
+    const cop = portfolioSeries(book, ledger, { kind: 'bucket', bucket: 'acciones_cop' }, 'COP', dates);
+    expect(ex.flows.map((f) => [f.date, f.amount.toNumber()])).toEqual([
+      ['2025-01-10', 4_000_000],
+      ['2025-01-10', 4_000_000],
+      ['2025-01-10', -4_000_000],
+      ['2025-02-10', 100_000],
+      ['2025-02-10', -100_000],
+    ]);
+    const net = (s: typeof ex) => s.flows.reduce((a, f) => a + f.amount.toNumber(), 0);
+    expect(net(ex) + net(cop)).toBe(net(total));
+    ex.values.forEach((v, i) => expect(v.value.plus(cop.values[i]!.value).eq(total.values[i]!.value)).toBe(true));
+    // Feb: AAA 650·4400 + USD cash 600·4400 (COP cash is zero after the withdrawal).
+    expect(ex.values[2]!.value.toNumber()).toBe(1250 * 4400);
+  });
+
   it('transfers between accounts are internal to the total but external to each account', () => {
     const withTransfer = [...ledger, tx('2025-02-20', 'cop', 'TRANSFER_OUT', -400_000, { transferId: 'T1' }), tx('2025-02-20', 'usd', 'TRANSFER_IN', 100, { transferId: 'T1' })];
     trm.push(['2025-02-20', 4000]);

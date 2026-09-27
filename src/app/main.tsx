@@ -8,6 +8,7 @@ import { Transactions } from './views/Transactions.tsx';
 import { MonthlyClose } from './views/MonthlyClose.tsx';
 import { Tracking } from './views/Tracking.tsx';
 import { Prices } from './views/Prices.tsx';
+import { Indicators } from './views/Indicators.tsx';
 import { Compare } from './views/Compare.tsx';
 import { DataView } from './views/Data.tsx';
 
@@ -16,6 +17,7 @@ const ROUTES = [
   { id: 'seguimiento', label: 'Seguimiento', view: Tracking },
   { id: 'cierre', label: 'Cierre del mes', view: MonthlyClose },
   { id: 'precios', label: 'Precios', view: Prices },
+  { id: 'indicadores', label: 'Indicadores', view: Indicators },
   { id: 'activos', label: 'Activos', view: Positions },
   { id: 'comparacion', label: 'Comparación', view: Compare },
   { id: 'movimientos', label: 'Movimientos', view: Transactions },

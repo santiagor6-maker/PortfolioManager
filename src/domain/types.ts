@@ -72,6 +72,41 @@ export interface Asset {
   target?: string;
   /** The user's thesis for holding it (e.g. Valor, Crecimiento, Cíclica). */
   strategy?: string;
+  /** Optimistic target price, in `ccy` (a decimal string). */
+  targetHigh?: string;
+  /** Market or region (e.g. USA, Colombia, Europa). */
+  region?: string;
+  /** Where the idea came from (e.g. Propia, a newsletter, an analyst). */
+  ideaSource?: string;
+  /** Free-text thesis notes. */
+  note?: string;
+  fundamentals?: Fundamentals;
+}
+
+/**
+ * Analyst data the user copies by hand (e.g. from Morningstar), with its date and source.
+ * Ratios are fractions (0.134 = 13.4 %) and every number is a decimal string.
+ */
+export interface Fundamentals {
+  asOf?: string;
+  source?: string;
+  cap?: 'large' | 'mid' | 'small';
+  style?: 'value' | 'blend' | 'growth';
+  moat?: 'wide' | 'narrow' | 'none';
+  /** Morningstar rating, 1–5. */
+  stars?: number;
+  salesGrowth5y?: string;
+  ebitdaMargin?: string;
+  netMargin?: string;
+  /** Earnings per share, in `ccy`. */
+  eps?: string;
+  /** Net debt in millions of `ccy` (negative: net cash). */
+  netDebt?: string;
+  debtToCapital?: string;
+  roic?: string;
+  roe?: string;
+  pe?: string;
+  evEbitda?: string;
 }
 
 export interface Account {

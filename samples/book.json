@@ -28,7 +28,20 @@
       "ccy": "USD",
       "bucket": "acciones_usd",
       "pricing": "market",
-      "symbol": "SMPL"
+      "symbol": "SMPL",
+      "region": "USA",
+      "ideaSource": "Propia",
+      "fundamentals": {
+        "asOf": "2025-06-30",
+        "source": "Datos de ejemplo",
+        "cap": "large",
+        "style": "growth",
+        "moat": "wide",
+        "stars": 4,
+        "roic": "0.21",
+        "netMargin": "0.18",
+        "pe": "24.5"
+      }
     },
     {
       "id": "ACME",
@@ -36,7 +49,19 @@
       "ccy": "USD",
       "bucket": "acciones_usd",
       "pricing": "market",
-      "symbol": "ACME"
+      "symbol": "ACME",
+      "region": "USA",
+      "ideaSource": "Boletín (demo)",
+      "fundamentals": {
+        "asOf": "2025-06-30",
+        "source": "Datos de ejemplo",
+        "cap": "mid",
+        "style": "value",
+        "moat": "narrow",
+        "stars": 3,
+        "roic": "0.11",
+        "pe": "13.2"
+      }
     },
     {
       "id": "ANDES",
@@ -44,14 +69,26 @@
       "ccy": "COP",
       "bucket": "acciones_cop",
       "pricing": "market",
-      "symbol": "ANDES"
+      "symbol": "ANDES",
+      "region": "Colombia",
+      "ideaSource": "Propia",
+      "fundamentals": {
+        "asOf": "2025-06-30",
+        "source": "Datos de ejemplo",
+        "cap": "small",
+        "style": "value",
+        "moat": "none",
+        "stars": 3
+      }
     },
     {
       "id": "COPY-TECH",
       "name": "Copy portfolio Tech (demo)",
       "ccy": "USD",
       "bucket": "acciones_usd",
-      "pricing": "manual"
+      "pricing": "manual",
+      "region": "USA",
+      "ideaSource": "Copy trading (demo)"
     },
     {
       "id": "FONDO-DEMO",

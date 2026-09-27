@@ -13,11 +13,16 @@ import type { Book, Valuation } from './valuation.ts';
  *   dividends are money out (they land in the account's cash, outside the bucket). Cash is excluded.
  * - `accounts`: whole accounts including their cash. Deposits, withdrawals and transfers are the flows.
  * - `total`: every account. Only deposits and withdrawals count; transfers between accounts are internal.
+ * - `mix`: any set of asset classes, with or without the accounts' cash. Without cash it adds up the
+ *   buckets (their trades are the flows). With cash it is the total minus the classes left out: deposits
+ *   and withdrawals, plus money moving between the cash and a class left out (a buy of it is money out).
+ *   Either way the scopes add up: mix(S, cash) + each class left out = total.
  */
 export type Scope =
   | { kind: 'bucket'; bucket: string }
   | { kind: 'accounts'; accounts: readonly string[] }
-  | { kind: 'total' };
+  | { kind: 'total' }
+  | { kind: 'mix'; buckets: readonly string[]; cash: boolean };
 
 export interface Flow {
   date: IsoDate;
@@ -44,6 +49,12 @@ function flowOf(book: Book, scope: Scope, tx: Transaction): Decimal | undefined 
       return ACCOUNT_FLOWS.has(tx.type) && scope.accounts.includes(tx.account) ? tx.amount : undefined;
     case 'total':
       return TOTAL_FLOWS.has(tx.type) ? tx.amount : undefined;
+    case 'mix': {
+      const bucket = tx.asset && BUCKET_FLOWS.has(tx.type) ? book.assets.get(tx.asset)?.bucket : undefined;
+      if (!scope.cash) return bucket !== undefined && scope.buckets.includes(bucket) ? tx.amount.neg() : undefined;
+      if (TOTAL_FLOWS.has(tx.type)) return tx.amount;
+      return bucket !== undefined && !scope.buckets.includes(bucket) ? tx.amount : undefined;
+    }
   }
 }
 
@@ -55,6 +66,8 @@ function value(book: Book, scope: Scope, h: Holdings, ccy: Ccy): Valuation {
       return valueHoldings(book, h, ccy, (acc) => scope.accounts.includes(acc));
     case 'total':
       return valueHoldings(book, h, ccy);
+    case 'mix':
+      return valueHoldings(book, h, ccy, (_acc, asset) => (asset ? scope.buckets.includes(asset.bucket) : true), scope.cash);
   }
 }
 

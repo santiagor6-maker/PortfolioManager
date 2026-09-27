@@ -1,12 +1,14 @@
-import { useMemo } from 'preact/hooks';
+import { useMemo, useState } from 'preact/hooks';
 import { addDays, daysBetween } from '../../domain/dates.ts';
-import { analyze } from '../analysis.ts';
-import type { Report } from '../analysis.ts';
+import { analyze, analyzeMix } from '../analysis.ts';
+import type { Report, ScopeResult } from '../analysis.ts';
 import { contextOf, coverage } from '../context.ts';
 import { Filters, useFilters } from '../components/Filters.tsx';
 import { Glossary } from '../components/Glossary.tsx';
 import { date, money, moneyShort, monthLabel, pct, ratio, today } from '../format.ts';
-import { useDataset } from '../store.ts';
+import { useDataset, usePref } from '../store.ts';
+import { CASH, parseSelection, pick } from '../selection.ts';
+import type { Selection } from '../selection.ts';
 import { LineChart } from '../components/LineChart.tsx';
 import { BarList, StackedBar, byClassOrder, classColor } from '../components/Bars.tsx';
 import type { BarItem, Part } from '../components/Bars.tsx';
@@ -34,27 +36,47 @@ function Icon({ d }: { d: string }) {
 export function Summary() {
   const { data } = useDataset();
   const [f, set] = useFilters();
-  const rep = useMemo(() => analyze(contextOf(data), f.ccy, f.asOf, f.window), [data, f.ccy, f.asOf, f.window]);
-  const t = rep.total;
+  const ctx = contextOf(data);
+  const rep = useMemo(() => analyze(ctx, f.ccy, f.asOf, f.window), [ctx, f.ccy, f.asOf, f.window]);
+  const ordered = [...rep.buckets].sort((a, b) => byClassOrder(a.bucket, b.bucket));
+  const all = [...ordered.map((b) => b.bucket), ...(rep.cash.isZero() ? [] : [CASH])];
+  const [saved, setSaved] = usePref<string>('summary:selection', '');
+  const [multi, setMulti] = useState(false);
+  const sel = parseSelection(saved, all);
+  const on = (id: string) => !sel || sel.includes(id);
+  const choose = (id: string, e: MouseEvent) => setSaved((pick(sel, id, all, multi || e.ctrlKey || e.metaKey) ?? []).join(','));
+  const mix = useMemo(
+    () => (sel ? analyzeMix(ctx, sel.filter((x) => x !== CASH), sel.includes(CASH), f.ccy, f.asOf, f.window) : undefined),
+    [ctx, saved, f.ccy, f.asOf, f.window],
+  );
+  const t = mix ?? rep.total;
+  const withCash = on(CASH);
   const gain = t.perf ? t.perf.endValue.minus(t.perf.startValue).minus(t.perf.netFlows) : undefined;
-  const income = rep.buckets.reduce((a, b) => a.plus(b.income), dec(0));
+  const income = rep.buckets.filter((b) => on(b.bucket)).reduce((a, b) => a.plus(b.income), dec(0));
   const compact = (v: number) => moneyShort(dec(v), f.ccy);
   const history = t.history;
-  const parts: Part[] = [...rep.buckets]
-    .sort((a, b) => byClassOrder(a.bucket, b.bucket))
-    .map((b) => ({ id: b.bucket, label: b.label, value: b.value.toNumber(), color: classColor(b.bucket), detail: <>{moneyShort(b.value, f.ccy)}<small>{pct(b.weight)}</small></> }));
-  if (rep.cash.gt(0)) parts.push({ id: 'cash', label: 'Efectivo en cuentas', value: rep.cash.toNumber(), color: 'var(--context)', detail: <>{moneyShort(rep.cash, f.ccy)}<small>{pct(t.value.isZero() ? 0 : rep.cash.div(t.value).toNumber())}</small></> });
+  const share = (v: typeof t.value) => (t.value.isZero() ? 0 : v.div(t.value).toNumber());
+  const labelOf = (id: string) => (id === CASH ? 'Efectivo en cuentas' : ordered.find((b) => b.bucket === id)?.label ?? id);
+  const parts: Part[] = ordered.map((b) => ({ id: b.bucket, label: b.label, value: b.value.toNumber(), color: classColor(b.bucket), detail: on(b.bucket) ? <>{moneyShort(b.value, f.ccy)}<small>{pct(share(b.value))}</small></> : <small>fuera de la selección</small> }));
+  if (!rep.cash.isZero()) parts.push({ id: CASH, label: 'Efectivo en cuentas', value: rep.cash.toNumber(), color: 'var(--context)', detail: withCash ? <>{moneyShort(rep.cash, f.ccy)}<small>{pct(share(rep.cash))}</small></> : <small>fuera de la selección</small> });
   return (
     <>
       <Filters state={f} set={set} />
       <DataAlerts rep={rep} data={data} />
       <CloseNudge data={data} />
+      <Picker all={all} sel={sel} labelOf={labelOf} choose={choose} reset={() => setSaved('')} multi={multi} setMulti={setMulti} />
+      {mix?.error && <div class="notice err">{mix.error}</div>}
 
-      <section class="card hero" aria-label="Valor del portafolio">
+      <section class="card hero" aria-label={sel ? 'Valor de la selección' : 'Valor del portafolio'}>
         <div>
-          <div class="kicker">Valor del portafolio</div>
+          <div class="kicker">{sel ? 'Valor de la selección' : 'Valor del portafolio'}</div>
           <div class="figure">{moneyShort(t.value, f.ccy)}</div>
           <div class="exact">{money(t.value, f.ccy)} al {date(f.asOf)}</div>
+          {sel && (
+            <div class="exact">
+              {sel.map(labelOf).join(' + ')} · {pct(rep.total.value.isZero() ? 0 : t.value.div(rep.total.value).toNumber())} del total
+            </div>
+          )}
           {gain && (
             <div class="gain">
               Ganaste <strong class={sign(gain.toNumber())}>{moneyShort(gain, f.ccy)}</strong> sobre {t.perf ? moneyShort(t.perf.startValue.plus(t.perf.netFlows), f.ccy) : '—'} que pusiste
@@ -75,7 +97,7 @@ export function Summary() {
             <LineChart
               dates={history.map((h) => h.date)}
               series={[
-                { id: 'value', name: 'Valor del portafolio', color: 'var(--s1)', values: history.map((h) => h.value) },
+                { id: 'value', name: sel ? 'Valor de la selección' : 'Valor del portafolio', color: 'var(--s1)', values: history.map((h) => h.value) },
                 { id: 'invested', name: 'Lo que pusiste (aportes netos)', color: 'var(--context)', values: history.map((h) => h.invested) },
               ]}
               area="value"
@@ -84,7 +106,7 @@ export function Summary() {
               compact
               format={(v) => money(dec(Math.round(v)), f.ccy, 0)}
               axisFormat={compact}
-              label="Valor del portafolio frente a lo que has aportado"
+              label={`${sel ? 'Valor de la selección' : 'Valor del portafolio'} frente a lo que has aportado`}
             />
           )}
         </div>
@@ -112,7 +134,10 @@ export function Summary() {
           <div>
             <div class="label">Ganancia en el periodo</div>
             <div class={`value ${sign(gain?.toNumber())}`}>{gain ? moneyShort(gain, f.ccy) : '—'}</div>
-            <div class="sub">Aportes netos {t.perf ? moneyShort(t.perf.netFlows, f.ccy) : '—'} · efectivo en cuentas {moneyShort(rep.cash, f.ccy)}</div>
+            <div class="sub">
+              Aportes netos {t.perf ? moneyShort(t.perf.netFlows, f.ccy) : '—'}
+              {withCash && ` · efectivo en cuentas ${moneyShort(rep.cash, f.ccy)}`}
+            </div>
           </div>
         </div>
         <div class="tile">
@@ -128,25 +153,25 @@ export function Summary() {
       <div class="card">
         <div class="card-head">
           <h2>¿Dónde está tu dinero?</h2>
-          <span class="small muted">Peso de cada clase en el valor total</span>
+          <span class="small muted">{sel ? 'Peso de cada clase dentro de la selección' : 'Peso de cada clase en el valor total'}</span>
         </div>
-        <StackedBar parts={parts} label="Distribución del portafolio por clase de activo" />
+        <StackedBar parts={parts} label="Distribución del portafolio por clase de activo" isOn={on} onPick={choose} />
       </div>
 
       <div class="card-head" style="margin-top:4px">
         <h2>Rendimiento por clase</h2>
-        <span class="small muted">TWR anual frente a su índice de retorno total</span>
+        <span class="small muted">TWR anual frente a su índice de retorno total · clic en una tarjeta para ver solo esa clase, Ctrl/⌘ + clic para sumar o quitar</span>
       </div>
       <div class="classes">
         {rep.buckets.map((b) => (
-          <ClassCard b={b} ccy={f.ccy} />
+          <ClassCard b={b} ccy={f.ccy} state={!sel ? 'all' : on(b.bucket) ? 'on' : 'off'} choose={choose} />
         ))}
       </div>
 
       <div class="card">
         <details>
           <summary>Ver tabla detallada por clase</summary>
-          <DetailTable rep={rep} ccy={f.ccy} />
+          <DetailTable rep={rep} ccy={f.ccy} sel={sel} mix={mix} labelOf={labelOf} />
         </details>
       </div>
       <Glossary />
@@ -156,7 +181,29 @@ export function Summary() {
 
 const chipTone = (x: number | null | undefined) => (x === undefined || x === null ? '' : x >= 0 ? 'good' : 'bad');
 
-function ClassCard({ b, ccy }: { b: Report['buckets'][number]; ccy: string }) {
+/** The portfolios the page adds up: a click shows only one, Ctrl/⌘-click (or "varios" on touch screens) adds or removes. */
+function Picker({ all, sel, labelOf, choose, reset, multi, setMulti }: { all: string[]; sel: Selection; labelOf: (id: string) => string; choose: (id: string, e: MouseEvent) => void; reset: () => void; multi: boolean; setMulti: (v: boolean) => void }) {
+  return (
+    <div class="toolbar picker" role="group" aria-label="Portafolios que se suman">
+      <span class="picker-label">Ver</span>
+      <button type="button" class="pchip all" aria-pressed={!sel} onClick={reset}>
+        Todo
+      </button>
+      {all.map((id) => (
+        <button type="button" class="pchip" aria-pressed={!sel || sel.includes(id)} style={`--c:${id === CASH ? 'var(--context)' : classColor(id)}`} onClick={(e) => choose(id, e)}>
+          <span class="dot" aria-hidden="true" />
+          {labelOf(id)}
+        </button>
+      ))}
+      <label class="multi">
+        <input type="checkbox" checked={multi} onChange={(e) => setMulti((e.target as HTMLInputElement).checked)} /> Varios a la vez
+      </label>
+      <span class="small muted hint">Clic: solo ese · Ctrl/⌘ + clic: sumar o quitar</span>
+    </div>
+  );
+}
+
+function ClassCard({ b, ccy, state, choose }: { b: Report['buckets'][number]; ccy: string; state: 'all' | 'on' | 'off'; choose: (id: string, e: MouseEvent) => void }) {
   const color = classColor(b.bucket);
   const main = b.benches.find((x) => x.ksPme !== undefined);
   const items: BarItem[] = [
@@ -164,7 +211,14 @@ function ClassCard({ b, ccy }: { b: Report['buckets'][number]; ccy: string }) {
     ...b.benches.filter((x) => x.annual !== undefined).map((x) => ({ label: x.name, value: x.annual!, color: 'var(--context)', text: pct(x.annual), title: x.name })),
   ];
   return (
-    <article class="class-card" style={`--c:${color}`}>
+    <article
+      class={`class-card pickable ${state}`}
+      style={`--c:${color}`}
+      title="Clic: ver solo esta clase · Ctrl/⌘ + clic: sumarla o quitarla"
+      onClick={(e) => {
+        if (!(e.target as HTMLElement).closest('a, button, summary')) choose(b.bucket, e);
+      }}
+    >
       <div class="top">
         <a href={`#/activos?clase=${b.bucket}`}>{b.label}</a>
         <span class="small muted">{pct(b.weight)} del total</span>
@@ -204,7 +258,7 @@ function ClassCard({ b, ccy }: { b: Report['buckets'][number]; ccy: string }) {
   );
 }
 
-function DetailTable({ rep, ccy }: { rep: Report; ccy: string }) {
+function DetailTable({ rep, ccy, sel, mix, labelOf }: { rep: Report; ccy: string; sel: Selection; mix?: ScopeResult; labelOf: (id: string) => string }) {
   const t = rep.total;
   return (
     <>
@@ -226,7 +280,7 @@ function DetailTable({ rep, ccy }: { rep: Report; ccy: string }) {
           <tbody>
             {rep.buckets.map((b) => (
               <>
-                <tr key={b.bucket}>
+                <tr key={b.bucket} class={sel && !sel.includes(b.bucket) ? 'off' : ''}>
                   <td>
                     <span class="wbar" style={`width:10px;background:${classColor(b.bucket)}`} />
                     {b.label}
@@ -255,6 +309,16 @@ function DetailTable({ rep, ccy }: { rep: Report; ccy: string }) {
             ))}
           </tbody>
           <tfoot>
+            {sel && mix && (
+              <tr>
+                <td>Selección: {sel.map(labelOf).join(' + ')}</td>
+                <td class="n">{money(mix.value, ccy)}</td>
+                <td class="n">{pct(t.value.isZero() ? 0 : mix.value.div(t.value).toNumber())}</td>
+                <td class={`n ${sign(mix.perf?.xirr)}`}>{pct(mix.perf?.xirr)}</td>
+                <td class={`n ${sign(mix.perf?.twrAnnual)}`}>{pct(mix.perf?.twrAnnual)}</td>
+                <td colSpan={4}></td>
+              </tr>
+            )}
             <tr>
               <td>Total (con efectivo)</td>
               <td class="n">{money(t.value, ccy)}</td>

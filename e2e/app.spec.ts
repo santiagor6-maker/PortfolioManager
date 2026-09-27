@@ -28,7 +28,7 @@ test('demo portfolio: summary, positions, comparison, persistence', async ({ pag
   expect(value).toMatch(/\$ \d/);
   if (shots) await page.screenshot({ path: `${shots}/resumen-${info.project.name}.png`, fullPage: true });
 
-  await page.getByRole('button', { name: 'USD' }).click();
+  await page.getByRole('button', { name: 'USD', exact: true }).click();
   await expect(page.locator('.hero .figure')).toContainText('US$');
 
   await page.getByRole('link', { name: 'Activos' }).click();
@@ -177,4 +177,70 @@ test('price tracking: set a target and see the progress; theme switch', async ({
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await page.getByRole('switch', { name: 'Modo oscuro' }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+});
+
+const amount = (s: string | null) => Number((s ?? '').match(/\$ ([\d.]+)/)![1]!.replace(/\./g, ''));
+
+test('summary is modular: click a class, Ctrl-click to leave one out, the choice is remembered', async ({ page }, info) => {
+  await loadDemo(page);
+  const card = (name: string) => page.locator('.class-card').filter({ has: page.getByRole('link', { name, exact: true }) });
+  const heroExact = page.locator('.hero .exact').first();
+  const total = amount(await heroExact.textContent());
+
+  await card('Fondos').locator('.big').click();
+  await expect(page.locator('.hero .kicker')).toHaveText('Valor de la selección');
+  expect(amount(await heroExact.textContent())).toBe(amount(await card('Fondos').locator('.big').textContent()));
+
+  await page.getByRole('button', { name: 'Todo', exact: true }).click();
+  await expect(page.locator('.hero .kicker')).toHaveText('Valor del portafolio');
+
+  await card('Inmobiliario').locator('.big').click({ modifiers: ['Control'] });
+  const picker = page.getByRole('group', { name: 'Portafolios que se suman' });
+  await expect(picker.getByRole('button', { name: 'Inmobiliario' })).toHaveAttribute('aria-pressed', 'false');
+  await expect(picker.getByRole('button', { name: 'Fondos' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.hero .exact').nth(1)).not.toContainText('Inmobiliario');
+  const withoutRealEstate = amount(await heroExact.textContent());
+  expect(withoutRealEstate + amount(await card('Inmobiliario').locator('.big').textContent())).toBe(total);
+  await expect(page.locator('.notice.err')).toHaveCount(0);
+  if (shots) await page.screenshot({ path: `${shots}/resumen-seleccion-${info.project.name}.png`, fullPage: true });
+
+  await page.reload();
+  await expect(page.locator('.hero .kicker')).toHaveText('Valor de la selección');
+  expect(amount(await page.locator('.hero .exact').first().textContent())).toBe(withoutRealEstate);
+});
+
+test('indicators: composition filters the table; edit the thesis and fundamentals', async ({ page }, info) => {
+  await loadDemo(page);
+  await page.getByRole('link', { name: 'Indicadores' }).click();
+  const rows = page.locator('table.ind tr.stock');
+  await expect(rows).toHaveCount(4);
+  await page.locator('.wpanel').filter({ hasText: 'Mercado' }).getByRole('button', { name: /Colombia/ }).click();
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('Andes Energía SA');
+  await page.getByRole('button', { name: 'Quitar filtro' }).click();
+  await expect(rows).toHaveCount(4);
+
+  const row = rows.filter({ hasText: 'Sample Corp' });
+  await row.getByRole('button', { name: /Sample Corp/ }).click();
+  const form = page.getByRole('form', { name: 'Tesis de Sample Corp' });
+  await form.getByLabel(/Precio objetivo/).fill('1000');
+  await form.getByLabel(/Precio optimista/).fill('1.200,5');
+  await form.getByLabel('ROE (%)').fill('31,5');
+  await form.getByLabel('Comentarios').fill('Líder del mercado (demo)');
+  await form.getByRole('button', { name: 'Guardar' }).click();
+  await expect(row).toContainText('US$ 1.000+');
+  await expect(row).toContainText('US$ 1.201+') // 1.200,5 read with a decimal comma;
+  await expect(row).toContainText('Líder del mercado (demo)');
+  await expect(page.locator('.tile').filter({ hasText: 'Potencial ponderado' }).locator('.value')).toContainText('%');
+
+  await page.getByRole('button', { name: 'Fundamentales' }).click();
+  await expect(row).toContainText('31,5 %');
+  await expect(row).toContainText('24,5x');
+  if (shots) await page.screenshot({ path: `${shots}/indicadores-${info.project.name}.png`, fullPage: true });
+
+  // Precios links straight to the stock's thesis.
+  await page.getByRole('link', { name: 'Precios' }).click();
+  await page.locator('table.prices tr.stock').filter({ hasText: 'Acme Industries' }).getByRole('button', { name: /Acme/ }).click();
+  await page.getByRole('link', { name: /Tesis, precio optimista y fundamentales de Acme/ }).click();
+  await expect(page.getByRole('form', { name: 'Tesis de Acme Industries' })).toBeVisible();
 });

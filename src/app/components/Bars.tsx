@@ -21,26 +21,38 @@ export interface Part {
   detail: ComponentChildren;
 }
 
-/** Part-to-whole: one 100% bar (segments in fixed slot order, 2px surface gaps) plus a legend carrying every value. */
-export function StackedBar({ parts, label }: { parts: Part[]; label: string }) {
-  const total = parts.reduce((s, p) => s + Math.max(0, p.value), 0) || 1;
+/**
+ * Part-to-whole: one 100% bar (segments in fixed slot order, 2px surface gaps) plus a legend carrying every value.
+ * With `onPick` the legend items are buttons; parts where `isOn` is false stay in the legend but leave the bar.
+ */
+export function StackedBar({ parts, label, isOn = () => true, onPick }: { parts: Part[]; label: string; isOn?: (id: string) => boolean; onPick?: (id: string, e: MouseEvent) => void }) {
+  const shown = parts.filter((p) => isOn(p.id));
+  const total = shown.reduce((s, p) => s + Math.max(0, p.value), 0) || 1;
   return (
     <div>
       <div class="alloc-bar" role="img" aria-label={label}>
-        {parts
+        {shown
           .filter((p) => p.value > 0)
           .map((p) => (
             <span style={`flex:${p.value / total};background:${p.color}`} title={`${p.label}: ${((100 * p.value) / total).toFixed(1)} %`} />
           ))}
       </div>
       <div class="alloc-legend">
-        {parts.map((p) => (
-          <div class="item">
-            <span class="dot" style={`background:${p.color}`} />
-            <span class="name">{p.label}</span>
-            <span class="val">{p.detail}</span>
-          </div>
-        ))}
+        {parts.map((p) =>
+          onPick ? (
+            <button type="button" class={`item pick ${isOn(p.id) ? '' : 'off'}`} aria-pressed={isOn(p.id)} onClick={(e) => onPick(p.id, e)}>
+              <span class="dot" style={`background:${p.color}`} />
+              <span class="name">{p.label}</span>
+              <span class="val">{p.detail}</span>
+            </button>
+          ) : (
+            <div class="item">
+              <span class="dot" style={`background:${p.color}`} />
+              <span class="name">{p.label}</span>
+              <span class="val">{p.detail}</span>
+            </div>
+          ),
+        )}
       </div>
     </div>
   );

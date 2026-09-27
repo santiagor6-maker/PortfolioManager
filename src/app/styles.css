@@ -370,3 +370,60 @@ form.edit-row input { width: 170px; }
   .step .dot { width: 26px; height: 26px; font-size: 13px; }
   .result-hero .figure { font-size: 30px; }
 }
+
+/* Resumen: pick the portfolios to add up */
+.picker { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.picker-label { font-size: 13px; color: var(--ink-2); font-weight: 600; margin-right: 2px; }
+.pchip { display: inline-flex; align-items: center; gap: 7px; border-radius: 999px; padding: 5px 12px; font-size: 13.5px; color: var(--muted); background: var(--surface); }
+.pchip .dot { width: 10px; height: 10px; border-radius: 3px; background: var(--c); opacity: 0.35; }
+.pchip[aria-pressed='true'] { color: var(--ink); border-color: color-mix(in srgb, var(--c, var(--ink-2)) 55%, var(--border)); background: var(--surface-2); font-weight: 600; }
+.pchip[aria-pressed='true'] .dot { opacity: 1; }
+.pchip.all[aria-pressed='true'] { background: var(--info-bg); color: var(--info-ink); border-color: transparent; }
+.picker .multi { display: none; font-size: 13px; color: var(--ink-2); align-items: center; gap: 6px; }
+.picker .hint { margin-left: auto; }
+@media (hover: none) {
+  .picker .multi { display: inline-flex; }
+  .picker .hint { display: none; }
+}
+.class-card.pickable { cursor: pointer; transition: opacity 0.15s ease, box-shadow 0.15s ease; }
+.class-card.pickable:hover { box-shadow: 0 0 0 1px var(--c), var(--shadow); }
+.class-card.on { box-shadow: 0 0 0 2px var(--c), var(--shadow); }
+.class-card.off { opacity: 0.5; }
+.alloc-legend button.item { border: 1px solid transparent; background: none; text-align: left; padding: 4px 6px; margin: -4px -6px; border-radius: 8px; font: inherit; color: inherit; }
+.alloc-legend button.item:hover { background: var(--surface-2); }
+.alloc-legend button.item.off { opacity: 0.5; }
+tr.off td { opacity: 0.5; }
+@media (prefers-reduced-motion: reduce) { .class-card.pickable { transition: none; } }
+
+/* Indicadores: composition bars, style box, thesis form */
+.composition { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 18px 28px; }
+.wpanel h3 { font-size: 14px; margin: 0 0 8px; }
+.wbars { display: grid; gap: 2px; }
+.wrow { display: grid; grid-template-columns: minmax(70px, 38%) 1fr 58px; gap: 8px; align-items: center; border: 1px solid transparent; background: none; padding: 3px 6px; margin: 0 -6px; border-radius: 6px; font: inherit; font-size: 13px; color: var(--ink-2); text-align: left; }
+.wrow:hover { background: var(--surface-2); }
+.wrow[aria-pressed='true'] { background: var(--info-bg); color: var(--info-ink); font-weight: 600; }
+.wrow .wl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wrow .wt { height: 10px; }
+.wrow .wf { display: block; height: 100%; min-width: 2px; border-radius: 0 3px 3px 0; background: var(--s1); }
+.wrow.none .wf { background: var(--context); }
+.wrow.none { color: var(--muted); }
+.wrow .wv { white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); font-weight: 600; }
+table.stylebox { border-collapse: separate; border-spacing: 3px; margin: -3px 0 4px -3px; }
+table.stylebox th { font-size: 11.5px; font-weight: 500; color: var(--muted); padding: 0 4px; border: none; text-align: center; background: none; }
+table.stylebox th[scope='row'] { text-align: right; }
+table.stylebox td { padding: 0; border: none; }
+.boxcell { width: 58px; height: 38px; border: 1px solid transparent; border-radius: 6px; padding: 0; font-size: 12.5px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.boxcell:disabled { cursor: default; }
+.boxcell[aria-pressed='true'] { outline: 2px solid var(--ink); outline-offset: 1px; }
+.wcell { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+table.ind .stars { color: var(--warn-ink); letter-spacing: -1px; white-space: nowrap; }
+table.ind .note-cell { max-width: 220px; }
+table.ind .note-cell span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.chip.tag.flush { margin-left: 0; }
+form.thesis { display: grid; gap: 12px; padding-top: 6px; }
+form.thesis fieldset { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px 12px; margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px 12px; background: var(--surface); }
+form.thesis legend { font-size: 13px; font-weight: 650; padding: 0 4px; }
+form.thesis label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--ink-2); }
+form.thesis label.wide { grid-column: 1 / -1; }
+form.thesis textarea { font: inherit; resize: vertical; }
+form.thesis .actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }

@@ -3,7 +3,7 @@ import { Decimal } from '../../domain/money.ts';
 import { positionRows, bucketLabel } from '../analysis.ts';
 import { contextOf } from '../context.ts';
 import { Filters, useFilters } from '../components/Filters.tsx';
-import { date, money, moneyShort, num, pct } from '../format.ts';
+import { date, money, moneyShort, num, parseNumber, pct, price } from '../format.ts';
 import { upsertAsset } from '../mutations.ts';
 import { battingAverage, stockBook } from '../stocks.ts';
 import type { StockRow } from '../stocks.ts';
@@ -20,13 +20,6 @@ const SORTS: { id: Sort; label: string }[] = [
 ];
 
 const sign = (x: number | undefined) => (x === undefined ? '' : x > 0 ? 'pos' : x < 0 ? 'neg' : '');
-/** A price in its own currency, with enough decimals for cheap shares. */
-const price = (x: Decimal | number | undefined, ccy: string) => {
-  if (x === undefined) return '—';
-  const d = x instanceof Decimal ? x : new Decimal(x);
-  const abs = d.abs().toNumber();
-  return money(d, ccy, abs >= 1000 ? 0 : abs >= 1 ? 2 : 4);
-};
 
 /** A number with no currency sign, for tight labels. */
 const bare = (x: number) => new Intl.NumberFormat('es-CO', { maximumFractionDigits: Math.abs(x) >= 1000 ? 0 : Math.abs(x) >= 1 ? 2 : 4 }).format(x);
@@ -95,13 +88,6 @@ function Progress({ r }: { r: StockRow }) {
       <span class="small">{pct(p, 0)}</span>
     </div>
   );
-}
-
-function parseNumber(raw: string): Decimal | undefined {
-  const s = raw.trim();
-  if (!s) return undefined;
-  const norm = /,\d*$/.test(s) ? s.replace(/\./g, '').replace(',', '.') : s.replace(/,/g, '');
-  return new Decimal(norm);
 }
 
 function Edit({ r, strategies, onDone }: { r: StockRow; strategies: string[]; onDone: () => void }) {
@@ -379,6 +365,9 @@ export function Prices() {
                               </div>
                               <h3 style="margin-top:12px">Objetivo y estrategia</h3>
                               <Edit r={r} strategies={strategies} onDone={() => setOpen(undefined)} />
+                              <p class="small" style="margin-top:10px">
+                                <a href={`#/indicadores?accion=${encodeURIComponent(r.asset)}`}>Tesis, precio optimista y fundamentales de {r.name} →</a>
+                              </p>
                             </div>
                           </div>
                         </td>

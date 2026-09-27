@@ -1,4 +1,4 @@
-import type { Decimal } from '../domain/money.ts';
+import { Decimal } from '../domain/money.ts';
 
 const MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 
@@ -49,4 +49,20 @@ export function monthLabel(d: string): string {
 export function today(): string {
   const t = new Date();
   return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+}
+
+/** A price in its own currency, with enough decimals for cheap shares. */
+export function price(x: Decimal | number | undefined, ccy: string): string {
+  if (x === undefined) return '—';
+  const d = x instanceof Decimal ? x : new Decimal(x);
+  const abs = d.abs().toNumber();
+  return money(d, ccy, abs >= 1000 ? 0 : abs >= 1 ? 2 : 4);
+}
+
+/** Reads a number typed either way: "1.234,5" or "1,234.5" (a trailing comma group is the decimal part). */
+export function parseNumber(raw: string): Decimal | undefined {
+  const s = raw.trim();
+  if (!s) return undefined;
+  const norm = /,\d*$/.test(s) ? s.replace(/\./g, '').replace(',', '.') : s.replace(/,/g, '');
+  return new Decimal(norm);
 }
