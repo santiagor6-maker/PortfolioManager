@@ -1,0 +1,4 @@
+#!/bin/sh
+# Keeps personal data and secrets out of the repo and refuses code that fails the typecheck or unit tests.
+# Enabled by `npm install` (git config core.hooksPath .githooks). See scripts/guard.ts.
+exec node scripts/guard.ts pre-commit

@@ -28,6 +28,13 @@ Stack: TypeScript, Vitest, decimal.js. Static web app (Vite) that runs locally a
 - `npm run build` produces a single self-contained `dist/index.html` that opens from disk (`scripts/inline.ts`). `npm run test:e2e` drives it with Playwright from `file://`.
 - `samples/` — synthetic demo portfolio (fictional tickers and prices). `tests/` — hand-verified cases.
 - `npm test`, `npm run typecheck`. `node scripts/crossval.ts <dir>` checks the engine against a reference dataset kept outside the repo.
+- `node scripts/checks.ts` checks files prepared outside the app (month-end status, movements, prices, rates, asset changes) against a user's backup with the app's own rules (`src/app/checks.ts`); the skills use it before handing a file to the user.
+
+## Claude Code workflow
+
+- Skills in `.claude/skills/`: `month-close`, `import-statement`, `thesis-review`. They work from a backup the user exports and hand back files the user imports in Datos; never edit the user's data directly. Build those files outside the repo and validate them with `scripts/checks.ts` first.
+- Before committing changes to `src/domain`, `src/data` or the report builders in `src/app`, run the `finance-reviewer` subagent (`.claude/agents/`) and address its findings.
+- Hooks: `.githooks/pre-commit` (`scripts/guard.ts`, enabled by `npm install`) blocks personal data, secrets, and code that fails the typecheck or unit tests. Never bypass it. `.claude/settings.json` enables it at session start, blocks `--no-verify`, and runs the typecheck and tests before a turn ends with code changes.
 
 ## Domain rules
 

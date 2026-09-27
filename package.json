@@ -9,7 +9,12 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepare": "git config core.hooksPath .githooks || true",
+    "check": "node scripts/checks.ts"
+  },
+  "engines": {
+    "node": ">=22.18"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.1",

@@ -13,3 +13,13 @@ Los datos se guardan solo en el navegador (IndexedDB). Descarga un respaldo en *
 ## Desarrollo
 
 `npm run dev` · `npm test` · `npm run test:e2e` · `npm run typecheck`
+
+## Con Claude Code
+
+- `/month-close [AAAA-MM]`: qué falta para cerrar el mes (precios, TRM, valores manuales) y archivos listos para importar, con fuente y fecha.
+- `/import-statement [cuenta]`: convierte un extracto en movimientos validados y cuadrados contra los saldos del extracto.
+- `/thesis-review [TICKER … | todas]`: calificaciones de foso económico y fundamentales publicados por proveedores, con fecha y enlace.
+- Revisor `finance-reviewer`: revisa los cambios de cálculo antes de cada commit.
+- El hook de pre-commit (`npm install` lo activa) impide subir datos personales o claves y código con pruebas en rojo.
+
+En todos los casos trabajas con un respaldo que descargas en **Datos**. Los archivos resultantes se importan en esa misma pantalla y nunca entran al repositorio.

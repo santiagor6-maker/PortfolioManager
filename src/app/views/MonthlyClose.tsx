@@ -9,6 +9,7 @@ import type { Transaction } from '../../domain/types.ts';
 import { validateTransaction } from '../../domain/validate.ts';
 import type { Context } from '../analysis.ts';
 import { bucketLabel } from '../analysis.ts';
+import { marketStatus } from '../checks.ts';
 import { BarList, classColor } from '../components/Bars.tsx';
 import type { BarItem } from '../components/Bars.tsx';
 import { contextOf } from '../context.ts';
@@ -118,9 +119,7 @@ export function MonthlyClose() {
   const start = `${month.slice(0, 8)}01`;
   const txs = useMemo(() => sortLedger(ctx.ledger).filter((x) => x.date >= start && x.date <= month && x.type !== 'VALUATION'), [ctx, month]);
   // Step 2: market prices and exchange rate at the month-end.
-  const marketRows = m < 0 ? [] : t.assets.filter((r) => ctx.book.assets.get(r.id.split('|')[1]!)?.pricing === 'market' && !r.cells[m]!.value.isZero());
-  const missing = marketRows.filter((r) => r.cells[m]!.flag === 'cost');
-  const stale = marketRows.filter((r) => r.cells[m]!.flag === 'stale');
+  const { rows: marketRows, missing, stale } = marketStatus(ctx, t, m);
   // Step 3: manual values.
   const rows = useMemo(() => (month ? manualRows(ctx, month) : []), [ctx, month]);
   const due = useMemo(() => (month ? valuationsDue(ctx.ledger, ctx.book.assets, month) : []), [ctx, month]);
