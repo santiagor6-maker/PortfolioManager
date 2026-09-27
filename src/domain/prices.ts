@@ -12,6 +12,8 @@ export interface PricePoint {
 export interface PriceSource {
   /** Latest close on or before `date`, or undefined if none is fresh enough. Never extrapolates. */
   close(symbol: string, date: IsoDate): PricePoint | undefined;
+  /** Every stored close for the symbol, ascending (for charts and ranges). */
+  history?(symbol: string): readonly PricePoint[];
 }
 
 /** In-memory daily series per symbol. A close older than `maxStaleDays` counts as missing. */
@@ -27,6 +29,10 @@ export class SeriesPriceSource implements PriceSource {
   set(symbol: string, points: PricePoint[]): this {
     this.series.set(symbol, [...points].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)));
     return this;
+  }
+
+  history(symbol: string): readonly PricePoint[] {
+    return this.series.get(symbol) ?? [];
   }
 
   close(symbol: string, date: IsoDate): PricePoint | undefined {

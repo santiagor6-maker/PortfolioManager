@@ -68,6 +68,10 @@ export interface Asset {
   bucket: string;
   pricing: Pricing;
   symbol?: string;
+  /** The user's target price, in `ccy` (a decimal string). */
+  target?: string;
+  /** The user's thesis for holding it (e.g. Valor, Crecimiento, Cíclica). */
+  strategy?: string;
 }
 
 export interface Account {

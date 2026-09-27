@@ -1,12 +1,13 @@
 import { render } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import './styles.css';
-import { useDataset } from './store.ts';
+import { useDataset, usePref } from './store.ts';
 import { Summary } from './views/Summary.tsx';
 import { Positions } from './views/Positions.tsx';
 import { Transactions } from './views/Transactions.tsx';
 import { MonthlyClose } from './views/MonthlyClose.tsx';
 import { Tracking } from './views/Tracking.tsx';
+import { Prices } from './views/Prices.tsx';
 import { Compare } from './views/Compare.tsx';
 import { DataView } from './views/Data.tsx';
 
@@ -14,11 +15,46 @@ const ROUTES = [
   { id: 'resumen', label: 'Resumen', view: Summary },
   { id: 'seguimiento', label: 'Seguimiento', view: Tracking },
   { id: 'cierre', label: 'Cierre del mes', view: MonthlyClose },
+  { id: 'precios', label: 'Precios', view: Prices },
   { id: 'activos', label: 'Activos', view: Positions },
   { id: 'comparacion', label: 'Comparación', view: Compare },
   { id: 'movimientos', label: 'Movimientos', view: Transactions },
   { id: 'datos', label: 'Datos', view: DataView },
 ] as const;
+
+// Apply a saved theme before the first paint, so a dark choice does not flash light.
+try {
+  const saved = localStorage.getItem('pref:theme');
+  if (saved === 'light' || saved === 'dark') document.documentElement.dataset.theme = saved;
+} catch {
+  /* private window: follow the system */
+}
+
+/** Light/dark switch. Until the user flips it, the page follows the system setting. */
+function ThemeSwitch() {
+  const [theme, setTheme] = usePref<'' | 'light' | 'dark'>('theme', '');
+  const [system, setSystem] = useState(() => matchMedia('(prefers-color-scheme: dark)').matches);
+  useEffect(() => {
+    const mq = matchMedia('(prefers-color-scheme: dark)');
+    const on = () => setSystem(mq.matches);
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
+  useEffect(() => {
+    if (theme) document.documentElement.dataset.theme = theme;
+    else delete document.documentElement.dataset.theme;
+  }, [theme]);
+  const dark = theme ? theme === 'dark' : system;
+  return (
+    <button type="button" class="theme-switch" role="switch" aria-checked={dark} aria-label="Modo oscuro" title={dark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'} onClick={() => setTheme(dark ? 'light' : 'dark')}>
+      <span class="knob" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width={2.2} stroke-linecap="round" stroke-linejoin="round">
+          {dark ? <path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" /> : <><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></>}
+        </svg>
+      </span>
+    </button>
+  );
+}
 
 function useRoute(): string {
   const get = () => location.hash.replace(/^#\/?/, '').split('?')[0] || '';
@@ -57,6 +93,7 @@ function App() {
               </a>
             ))}
           </nav>
+          <ThemeSwitch />
         </div>
       </header>
       <main>

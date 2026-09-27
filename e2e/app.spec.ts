@@ -152,3 +152,29 @@ test('month-by-month tracking with total and subtotal without real estate', asyn
   await grid.locator('thead').getByRole('link', { name: /jun/ }).click();
   await expect(page.locator('.close-title')).toHaveText('jun 2025');
 });
+
+test('price tracking: set a target and see the progress; theme switch', async ({ page }, info) => {
+  await loadDemo(page);
+  await page.getByRole('link', { name: 'Precios' }).click();
+  const table = page.locator('table.prices');
+  const row = table.locator('tr.stock').filter({ hasText: 'Sample Corp' });
+  await expect(row).toContainText('sin objetivo');
+  await row.getByRole('button', { name: /Sample Corp/ }).click();
+  const form = page.getByRole('form', { name: 'Objetivo de Sample Corp' });
+  await form.getByLabel(/Precio objetivo/).fill('1000');
+  await form.getByLabel('Estrategia').fill('Crecimiento');
+  await form.getByRole('button', { name: 'Guardar' }).click();
+  await expect(row).toContainText('Crecimiento');
+  await expect(row.locator('.progress')).toContainText('%');
+  await expect(page.locator('.tile').filter({ hasText: 'Acierto en ventas' })).toBeVisible();
+  if (shots) await page.screenshot({ path: `${shots}/precios-${info.project.name}.png`, fullPage: true });
+
+  const sw = page.getByRole('switch', { name: 'Modo oscuro' });
+  await expect(sw).toHaveAttribute('aria-checked', 'false');
+  await sw.click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await page.getByRole('switch', { name: 'Modo oscuro' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+});

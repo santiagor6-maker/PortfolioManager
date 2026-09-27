@@ -309,6 +309,47 @@ button.big { padding: 10px 20px; font-size: 15.5px; }
 .notice.cta { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 a.btn { display: inline-block; background: var(--accent); color: #fff; text-decoration: none; font-weight: 600; padding: 7px 14px; border-radius: 8px; white-space: nowrap; }
 
+/* Light/dark switch in the header */
+.theme-switch { margin-left: auto; flex: none; width: 54px; height: 30px; padding: 3px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.28); background: rgba(255, 255, 255, 0.14); position: relative; }
+.theme-switch .knob { position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff; color: var(--hero-b); display: grid; place-items: center; transition: transform 0.18s ease; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25); }
+.theme-switch[aria-checked='true'] .knob { transform: translateX(24px); color: #0d366b; }
+.theme-switch .knob svg { width: 14px; height: 14px; }
+.theme-switch:hover { background: rgba(255, 255, 255, 0.22); }
+@media (prefers-reduced-motion: reduce) { .theme-switch .knob { transition: none; } }
+
+/* Price tracking (the bitácora view) */
+table.prices { font-size: 13.5px; }
+table.prices th, table.prices td { padding: 7px 8px; vertical-align: middle; }
+table.prices tr.stock { cursor: pointer; }
+table.prices tr.stock:hover td { background: var(--surface-2); }
+table.prices tr.stock.open td { background: var(--surface-2); border-bottom-color: transparent; }
+table.prices tr.detail > td { background: var(--surface-2); padding: 4px 14px 14px; }
+.detail-grid { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(280px, 1fr); gap: 16px 28px; }
+.detail-grid h3 { font-size: 14px; margin: 6px 0 8px; }
+.detail-grid table.compact { background: var(--surface); border-radius: 8px; }
+.chip.tag { margin-left: 6px; padding: 1px 8px; font-size: 11px; background: var(--info-bg); color: var(--info-ink); }
+.spark { display: block; }
+.range { position: relative; width: 112px; padding-right: 10px; }
+.range .track { position: relative; height: 12px; }
+.range .band { position: absolute; top: 5px; height: 3px; border-radius: 2px; background: var(--context); }
+.range .tick { position: absolute; top: 0; width: 2px; height: 12px; margin-left: -1px; border-radius: 1px; }
+.range .tick.entry { background: var(--ink-2); }
+.range .tick.target { background: var(--good); }
+.range .now { position: absolute; top: 1px; width: 10px; height: 10px; margin-left: -5px; border-radius: 50%; border: 2px solid var(--surface); }
+.range .now.up { background: var(--dv-pos); }
+.range .now.down { background: var(--dv-neg); }
+.range .beyond { position: absolute; right: 0; top: -3px; color: var(--good); font-size: 12px; }
+.range .ends { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.progress { display: flex; align-items: center; gap: 6px; min-width: 96px; }
+.nowrap { white-space: nowrap; }
+.progress .bar { flex: 1; height: 8px; border-radius: 4px; background: var(--grid); overflow: hidden; min-width: 50px; }
+.progress .bar span { display: block; height: 100%; background: var(--dv-pos); border-radius: 4px; }
+.badge.good { background: color-mix(in srgb, var(--good) 16%, transparent); color: var(--good); border-color: transparent; font-weight: 600; }
+.stale { color: var(--warn-ink); font-weight: 600; }
+form.edit-row { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; }
+form.edit-row label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--ink-2); }
+form.edit-row input { width: 170px; }
+
 @media (max-width: 760px) {
   .hero { grid-template-columns: 1fr; }
   .hero .figure { font-size: 42px; }
@@ -320,7 +361,8 @@ a.btn { display: inline-block; background: var(--accent); color: #fff; text-deco
   .tile .value { font-size: 22px; }
   .grid2 { grid-template-columns: 1fr; }
   header.top .bar { gap: 8px; padding: 8px 12px; }
-  nav.tabs { width: 100%; }
+  nav.tabs { width: 100%; order: 3; }
+  .detail-grid { grid-template-columns: 1fr; }
   th, td { padding: 6px 7px; }
   table.track .rowh { min-width: 150px; max-width: 170px; }
   .close-head { grid-template-columns: 1fr; }
