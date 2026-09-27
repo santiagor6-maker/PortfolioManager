@@ -2,7 +2,7 @@ import { Decimal, ZERO } from '../domain/money.ts';
 import type { Ccy } from '../domain/money.ts';
 import type { IsoDate } from '../domain/dates.ts';
 import type { PricePoint } from '../domain/prices.ts';
-import type { Fundamentals } from '../domain/types.ts';
+import type { Fundamentals, MoatRating } from '../domain/types.ts';
 import type { ValuationMethod } from '../domain/valuation.ts';
 import { positionRows } from './analysis.ts';
 import type { Context } from './analysis.ts';
@@ -32,6 +32,14 @@ export interface IndicatorRow {
   ideaSource?: string;
   note?: string;
   f: Fundamentals;
+  moats: MoatRating[];
+  /** The moat category used for the composition: see `moatOf`. */
+  moat?: MoatRating['rating'];
+}
+
+/** Morningstar's category when there is one (the reference for moat ratings), else the first provider that gives a category. */
+export function moatOf(ratings: readonly MoatRating[]): MoatRating['rating'] {
+  return (ratings.find((m) => m.source === 'Morningstar' && m.rating) ?? ratings.find((m) => m.rating))?.rating;
 }
 
 const upsideTo = (t: Decimal | undefined, p: PricePoint | undefined) => (t && p && !p.close.isZero() ? t.div(p.close).minus(1).toNumber() : undefined);
@@ -73,6 +81,8 @@ export function indicatorRows(ctx: Context, ccy: Ccy, asOf: IsoDate, buckets: re
       ideaSource: a.ideaSource,
       note: a.note,
       f: a.fundamentals ?? {},
+      moats: a.moats ?? [],
+      moat: moatOf(a.moats ?? []),
     });
   }
   return rows.sort((x, y) => y.weight - x.weight || x.name.localeCompare(y.name));

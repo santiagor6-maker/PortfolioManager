@@ -36,12 +36,19 @@
         "source": "Datos de ejemplo",
         "cap": "large",
         "style": "growth",
-        "moat": "wide",
         "stars": 4,
         "roic": "0.21",
         "netMargin": "0.18",
         "pe": "24.5"
-      }
+      },
+      "moats": [
+        {
+          "source": "Proveedor demo",
+          "rating": "wide",
+          "asOf": "2025-06-30",
+          "note": "Calificación ficticia de la demostración"
+        }
+      ]
     },
     {
       "id": "ACME",
@@ -57,11 +64,18 @@
         "source": "Datos de ejemplo",
         "cap": "mid",
         "style": "value",
-        "moat": "narrow",
         "stars": 3,
         "roic": "0.11",
         "pe": "13.2"
-      }
+      },
+      "moats": [
+        {
+          "source": "Proveedor demo",
+          "rating": "narrow",
+          "asOf": "2025-06-30",
+          "note": "Calificación ficticia de la demostración"
+        }
+      ]
     },
     {
       "id": "ANDES",
@@ -77,9 +91,16 @@
         "source": "Datos de ejemplo",
         "cap": "small",
         "style": "value",
-        "moat": "none",
         "stars": 3
-      }
+      },
+      "moats": [
+        {
+          "source": "Proveedor demo",
+          "rating": "none",
+          "asOf": "2025-06-30",
+          "note": "Calificación ficticia de la demostración"
+        }
+      ]
     },
     {
       "id": "COPY-TECH",

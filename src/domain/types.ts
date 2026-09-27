@@ -81,6 +81,22 @@ export interface Asset {
   /** Free-text thesis notes. */
   note?: string;
   fundamentals?: Fundamentals;
+  /** Economic-moat ratings published by research providers (not the user's own call). */
+  moats?: MoatRating[];
+}
+
+/** An economic-moat rating as a research provider publishes it, with its date and link. */
+export interface MoatRating {
+  /** Provider, e.g. Morningstar or GuruFocus. */
+  source: string;
+  /** The provider's category, when it gives one. */
+  rating?: 'wide' | 'narrow' | 'none';
+  /** The provider's numeric score, when it uses one (GuruFocus: 0–10). */
+  score?: number;
+  /** Date of the rating (or the day it was checked, when the page shows none). */
+  asOf: string;
+  url?: string;
+  note?: string;
 }
 
 /**
@@ -92,7 +108,6 @@ export interface Fundamentals {
   source?: string;
   cap?: 'large' | 'mid' | 'small';
   style?: 'value' | 'blend' | 'growth';
-  moat?: 'wide' | 'narrow' | 'none';
   /** Morningstar rating, 1–5. */
   stars?: number;
   salesGrowth5y?: string;

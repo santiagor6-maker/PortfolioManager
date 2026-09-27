@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { Decimal } from '../../domain/money.ts';
-import type { Asset, Fundamentals } from '../../domain/types.ts';
+import type { Asset, Fundamentals, MoatRating } from '../../domain/types.ts';
 import { bucketLabel } from '../analysis.ts';
 import { contextOf } from '../context.ts';
 import { Filters, useFilters } from '../components/Filters.tsx';
@@ -20,7 +20,7 @@ const keyOf: Record<Dim, (r: IndicatorRow) => string | undefined> = {
   region: (r) => r.region,
   strategy: (r) => r.strategy,
   ideaSource: (r) => r.ideaSource,
-  moat: (r) => r.f.moat,
+  moat: (r) => r.moat,
   box: (r) => (r.f.cap && r.f.style ? `${r.f.cap}|${r.f.style}` : undefined),
 };
 const DIM_LABEL: Record<Dim, string> = { region: 'Mercado', strategy: 'Estrategia', ideaSource: 'Fuente de la idea', moat: 'Foso económico', box: 'Estilo' };
@@ -148,6 +148,30 @@ const NUM_FIELDS = [
 type PctKey = (typeof PCT_FIELDS)[number][0];
 type NumKey = (typeof NUM_FIELDS)[number][0];
 
+const ms = (a: Asset) => a.moats?.find((m) => m.source === 'Morningstar');
+const gf = (a: Asset) => a.moats?.find((m) => m.source === 'GuruFocus');
+
+/** Each provider's moat rating on its own line, linked to where it was published. */
+function Moats({ ratings }: { ratings: MoatRating[] }) {
+  if (!ratings.length) return <span class="muted small">sin calificación</span>;
+  return (
+    <div class="moats">
+      {ratings.map((m) => (
+        <div class="small" title={`${m.source}, ${date(m.asOf)}${m.note ? ` · ${m.note}` : ''}`}>
+          {m.url ? (
+            <a href={m.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+              {m.source}
+            </a>
+          ) : (
+            m.source
+          )}{' '}
+          <strong class={`moat-${m.rating ?? 'score'}`}>{m.rating ? MOAT[m.rating] : ''}{m.rating && m.score !== undefined ? ' · ' : ''}{m.score !== undefined ? `${m.score}/10` : ''}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function initial(a: Asset): Record<string, string> {
   const f = a.fundamentals ?? {};
   const s: Record<string, string> = {
@@ -159,7 +183,12 @@ function initial(a: Asset): Record<string, string> {
     note: a.note ?? '',
     cap: f.cap ?? '',
     style: f.style ?? '',
-    moat: f.moat ?? '',
+    msRating: ms(a)?.rating ?? '',
+    msAsOf: ms(a)?.asOf ?? '',
+    msUrl: ms(a)?.url ?? '',
+    gfScore: gf(a)?.score !== undefined ? String(gf(a)!.score) : '',
+    gfAsOf: gf(a)?.asOf ?? '',
+    gfUrl: gf(a)?.url ?? '',
     stars: f.stars ? String(f.stars) : '',
     asOf: f.asOf ?? '',
     source: f.source ?? '',
@@ -223,13 +252,23 @@ function ThesisForm({ asset, lists, onDone }: { asset: Asset; lists: Record<'str
       }
       if (st.cap) f.cap = st.cap as Fundamentals['cap'];
       if (st.style) f.style = st.style as Fundamentals['style'];
-      if (st.moat) f.moat = st.moat as Fundamentals['moat'];
+      const moats: MoatRating[] = (asset.moats ?? []).filter((m) => m.source !== 'Morningstar' && m.source !== 'GuruFocus');
+      if (st.msRating) {
+        if (!st.msAsOf) throw new Error('Pon la fecha de la calificación de Morningstar');
+        moats.unshift({ source: 'Morningstar', rating: st.msRating as MoatRating['rating'], asOf: st.msAsOf, ...(st.msUrl?.trim() ? { url: st.msUrl.trim() } : {}) });
+      }
+      if (st.gfScore) {
+        const score = Number(st.gfScore.replace(',', '.'));
+        if (!Number.isFinite(score) || score < 0 || score > 10) throw new Error('El Moat Score de GuruFocus va de 0 a 10');
+        if (!st.gfAsOf) throw new Error('Pon la fecha del Moat Score de GuruFocus');
+        moats.push({ source: 'GuruFocus', score, asOf: st.gfAsOf, ...(st.gfUrl?.trim() ? { url: st.gfUrl.trim() } : {}) });
+      }
       if (st.stars) f.stars = Number(st.stars);
       if (st.asOf) f.asOf = st.asOf;
       if (st.source?.trim()) f.source = st.source.trim();
       const d = getDataset();
       const a = d.assets.find((x) => x.id === asset.id)!;
-      const { target: _1, targetHigh: _2, strategy: _3, region: _4, ideaSource: _5, note: _6, fundamentals: _7, ...rest } = a;
+      const { target: _1, targetHigh: _2, strategy: _3, region: _4, ideaSource: _5, note: _6, fundamentals: _7, moats: _8, ...rest } = a;
       const opt = (k: string, v: string | undefined) => (v?.trim() ? { [k]: v.trim() } : {});
       await setDataset(
         upsertAsset(d, {
@@ -241,6 +280,7 @@ function ThesisForm({ asset, lists, onDone }: { asset: Asset; lists: Record<'str
           ...opt('ideaSource', st.ideaSource),
           ...opt('note', st.note),
           ...(Object.keys(f).length ? { fundamentals: f } : {}),
+          ...(moats.length ? { moats } : {}),
         }),
       );
       onDone();
@@ -264,10 +304,24 @@ function ThesisForm({ asset, lists, onDone }: { asset: Asset; lists: Record<'str
         </label>
       </fieldset>
       <fieldset>
+        <legend>Foso económico según fuentes externas</legend>
+        {choice('msRating', 'Morningstar', MOAT)}
+        <label>
+          Fecha (Morningstar)
+          <input type="date" value={st.msAsOf} onInput={up('msAsOf')} />
+        </label>
+        {text('msUrl', 'Enlace (Morningstar)')}
+        {num('gfScore', 'GuruFocus Moat Score (0–10)')}
+        <label>
+          Fecha (GuruFocus)
+          <input type="date" value={st.gfAsOf} onInput={up('gfAsOf')} />
+        </label>
+        {text('gfUrl', 'Enlace (GuruFocus)')}
+      </fieldset>
+      <fieldset>
         <legend>Morningstar y fundamentales</legend>
         {choice('cap', 'Tamaño', CAP)}
         {choice('style', 'Estilo', STYLE)}
-        {choice('moat', 'Foso económico', MOAT)}
         {choice('stars', 'Estrellas', { 1: '★', 2: '★★', 3: '★★★', 4: '★★★★', 5: '★★★★★' })}
         {PCT_FIELDS.map(([k, l]) => num(k, `${l} (%)`))}
         {NUM_FIELDS.map(([k, l]) => num(k, l))}
@@ -337,7 +391,7 @@ export function Indicators() {
   const conc = concentration(rows);
   const top = rows[0];
   const undated = rows.filter((r) => hasFundamentals(r.f) && !r.f.asOf);
-  const cols = view === 'tesis' ? 11 : 13;
+  const cols = view === 'tesis' ? 12 : 13;
 
   return (
     <>
@@ -451,7 +505,8 @@ export function Indicators() {
                     <th>Mercado</th>
                     <th>Fuente</th>
                     <th>Estrategia</th>
-                    <th>Estilo · foso</th>
+                    <th>Estilo</th>
+                    <th>Foso económico</th>
                     <th class="n">Estrellas</th>
                     <th class="n">Precio hoy</th>
                     <th class="n">Objetivo</th>
@@ -506,7 +561,9 @@ export function Indicators() {
                           <td>{r.strategy ? <span class="chip tag flush">{r.strategy}</span> : <span class="muted">—</span>}</td>
                           <td>
                             {r.f.cap || r.f.style ? `${r.f.cap ? CAP[r.f.cap] : '—'} · ${r.f.style ? STYLE[r.f.style] : '—'}` : <span class="muted">—</span>}
-                            {r.f.moat && <div class="small muted">foso {MOAT[r.f.moat]!.toLowerCase()}</div>}
+                          </td>
+                          <td>
+                            <Moats ratings={r.moats} />
                           </td>
                           <td class="n stars" aria-label={r.f.stars ? `${r.f.stars} estrellas` : 'sin estrellas'}>
                             {r.f.stars ? '★'.repeat(r.f.stars) : <span class="muted">—</span>}
@@ -549,7 +606,7 @@ export function Indicators() {
         </div>
         <p class="small muted" style="margin-top:8px">
           Peso sobre el valor al {date(f.asOf)} en {f.ccy} (cada acción sumando todas sus cuentas). Potencial = objetivo / precio de hoy − 1, en la moneda de la acción. Potencial ponderado: promedio por peso de
-          las acciones con objetivo y precio. Estilo, foso, estrellas y fundamentales son datos que copias a mano (p. ej. de Morningstar): guárdalos con su fecha y fuente. Valor exacto del portafolio:{' '}
+          las acciones con objetivo y precio. Foso económico: la calificación que publica cada fuente (Morningstar: amplio, estrecho o ninguno; GuruFocus: Moat Score de 0 a 10), con su fecha y enlace; la composición usa la de Morningstar (u otra fuente con categoría si Morningstar no la califica). Estilo, estrellas y fundamentales son datos que copias a mano: guárdalos con su fecha y fuente. Valor exacto del portafolio:{' '}
           {money(total, f.ccy)}.
         </p>
       </div>

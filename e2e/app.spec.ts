@@ -227,10 +227,17 @@ test('indicators: composition filters the table; edit the thesis and fundamental
   await form.getByLabel(/Precio optimista/).fill('1.200,5');
   await form.getByLabel('ROE (%)').fill('31,5');
   await form.getByLabel('Comentarios').fill('Líder del mercado (demo)');
+  // A moat rating needs its date: the provider's rating is shown with it, never the user's own call.
+  await form.getByLabel('GuruFocus Moat Score (0–10)').fill('9');
+  await form.getByRole('button', { name: 'Guardar' }).click();
+  await expect(form.getByRole('alert')).toContainText('fecha');
+  await form.getByLabel('Fecha (GuruFocus)').fill('2025-06-30');
   await form.getByRole('button', { name: 'Guardar' }).click();
   await expect(row).toContainText('US$ 1.000+');
   await expect(row).toContainText('US$ 1.201+') // 1.200,5 read with a decimal comma;
   await expect(row).toContainText('Líder del mercado (demo)');
+  await expect(row).toContainText('Proveedor demo Amplio');
+  await expect(row).toContainText('GuruFocus 9/10');
   await expect(page.locator('.tile').filter({ hasText: 'Potencial ponderado' }).locator('.value')).toContainText('%');
 
   await page.getByRole('button', { name: 'Fundamentales' }).click();

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { dec } from '../src/domain/money.ts';
 import { FxTable } from '../src/domain/fx.ts';
 import { SeriesPriceSource } from '../src/domain/prices.ts';
-import { breakdown, concentration, indicatorRows, weightedUpside } from '../src/app/indicators.ts';
+import { breakdown, concentration, indicatorRows, moatOf, weightedUpside } from '../src/app/indicators.ts';
 import { accounts, assets, tx } from './helpers.ts';
 
 const px = (close: number, ccy: string) => [{ date: '2025-06-30', close: dec(close), ccy, source: 'test' }];
@@ -64,5 +64,17 @@ describe('indicators: weights, composition and potential', () => {
     expect(c.top5).toBeCloseTo(1, 12);
     expect(c.effective).toBeCloseTo(1 / rows.reduce((s, r) => s + r.weight ** 2, 0), 12);
     expect(concentration([]).effective).toBeUndefined();
+  });
+});
+
+describe('moat from external providers', () => {
+  it("uses Morningstar's category first, then any provider with a category; a score alone is not a category", () => {
+    const ms = { source: 'Morningstar', rating: 'narrow' as const, asOf: '2026-08-28' };
+    const gf = { source: 'GuruFocus', score: 8, asOf: '2026-07-07' };
+    const other = { source: 'Otro', rating: 'wide' as const, asOf: '2026-01-01' };
+    expect(moatOf([gf, other, ms])).toBe('narrow');
+    expect(moatOf([gf, other])).toBe('wide');
+    expect(moatOf([gf])).toBeUndefined();
+    expect(moatOf([])).toBeUndefined();
   });
 });

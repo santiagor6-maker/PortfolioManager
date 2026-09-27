@@ -427,3 +427,7 @@ form.thesis label { display: flex; flex-direction: column; gap: 4px; font-size: 
 form.thesis label.wide { grid-column: 1 / -1; }
 form.thesis textarea { font: inherit; resize: vertical; }
 form.thesis .actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+table.ind .moats { display: grid; gap: 1px; white-space: nowrap; }
+table.ind .moats strong { font-weight: 600; }
+.moat-wide { color: var(--good); }
+.moat-none { color: var(--muted); }
