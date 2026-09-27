@@ -27,6 +27,19 @@ export interface Benchmark {
   buckets: string[];
 }
 
+/**
+ * A month the user closed, with the figures as they stood (in COP), so a later change to that month
+ * (a late dividend, a corrected price) can be flagged instead of silently rewriting a closed month.
+ */
+export interface MonthClose {
+  /** Month-end date. */
+  month: string;
+  closedAt: string;
+  total: string;
+  exRealEstate: string;
+  gain: string;
+}
+
 /** Everything the app stores. Exported as a single JSON backup. */
 export interface Dataset {
   format: 'investment-tracker';
@@ -37,10 +50,11 @@ export interface Dataset {
   ledger: StoredTx[];
   prices: StoredPrice[];
   fx: StoredRate[];
+  closes: MonthClose[];
 }
 
 export function emptyDataset(): Dataset {
-  return { format: 'investment-tracker', version: 1, accounts: [], assets: [], benchmarks: [], ledger: [], prices: [], fx: [] };
+  return { format: 'investment-tracker', version: 1, accounts: [], assets: [], benchmarks: [], ledger: [], prices: [], fx: [], closes: [] };
 }
 
 export function toStored(t: Transaction): StoredTx {

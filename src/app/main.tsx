@@ -6,15 +6,17 @@ import { Summary } from './views/Summary.tsx';
 import { Positions } from './views/Positions.tsx';
 import { Transactions } from './views/Transactions.tsx';
 import { MonthlyClose } from './views/MonthlyClose.tsx';
+import { Tracking } from './views/Tracking.tsx';
 import { Compare } from './views/Compare.tsx';
 import { DataView } from './views/Data.tsx';
 
 const ROUTES = [
   { id: 'resumen', label: 'Resumen', view: Summary },
+  { id: 'seguimiento', label: 'Seguimiento', view: Tracking },
+  { id: 'cierre', label: 'Cierre del mes', view: MonthlyClose },
   { id: 'activos', label: 'Activos', view: Positions },
   { id: 'comparacion', label: 'Comparación', view: Compare },
   { id: 'movimientos', label: 'Movimientos', view: Transactions },
-  { id: 'cierre', label: 'Cierre mensual', view: MonthlyClose },
   { id: 'datos', label: 'Datos', view: DataView },
 ] as const;
 
@@ -34,7 +36,7 @@ function App() {
   const route = useRoute();
   if (!loaded) return <main class="muted">Cargando…</main>;
   const empty = data.ledger.length === 0;
-  const current = ROUTES.find((r) => r.id === route) ?? (empty ? ROUTES[5] : ROUTES[0]);
+  const current = ROUTES.find((r) => r.id === route) ?? (empty ? ROUTES.find((r) => r.id === 'datos')! : ROUTES[0]);
   const View = current.view;
   return (
     <>

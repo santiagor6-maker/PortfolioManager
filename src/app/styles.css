@@ -248,6 +248,67 @@ dl.glossary dd { margin: 0; }
 .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--ink-2); margin: 8px 0; }
 .legend span.key { display: inline-block; width: 16px; height: 2px; vertical-align: middle; margin-right: 6px; }
 
+/* Month-by-month tracking grid: sticky row labels and month headers, latest month on the right */
+.track-wrap { max-height: 72vh; overflow: auto; border: 1px solid var(--grid); border-radius: 10px; }
+table.track { font-size: 13px; width: auto; min-width: 100%; }
+table.track th, table.track td { padding: 5px 9px; border-bottom: 1px solid var(--grid); }
+table.track thead th { position: sticky; top: 0; z-index: 2; background: var(--surface-2); vertical-align: bottom; }
+table.track thead th a { color: var(--ink-2); text-decoration: none; display: block; line-height: 1.15; }
+table.track thead th a:hover { color: var(--accent-ink); }
+table.track thead th small { display: block; font-weight: 500; color: var(--muted); font-size: 11px; }
+table.track thead th .ok { color: var(--good); font-weight: 700; }
+table.track .rowh { position: sticky; left: 0; z-index: 1; background: var(--surface); text-align: left; min-width: 210px; max-width: 260px; font-weight: 500; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+table.track thead .rowh { z-index: 3; background: var(--surface-2); }
+table.track .rowh .lbl small { color: var(--muted); font-size: 11px; font-weight: 400; margin-left: 6px; }
+table.track tr.k-asset .rowh { padding-left: 26px; }
+table.track tr.k-class td, table.track tr.k-class .rowh { background: var(--surface-2); font-weight: 650; }
+table.track tr.k-class .rowh { box-shadow: inset 4px 0 0 var(--c, var(--accent)); }
+.rowtoggle { border: none; background: none; padding: 0; font-weight: 650; display: inline-flex; gap: 6px; align-items: center; }
+.rowtoggle .caret { color: var(--muted); width: 10px; }
+table.track tr.k-cash .rowh, table.track tr.k-cash td { color: var(--ink-2); font-style: italic; }
+table.track tr.k-subtotal td, table.track tr.k-subtotal .rowh { font-weight: 700; border-top: 2px solid var(--axis); background: var(--info-bg); }
+table.track tr.k-total td, table.track tr.k-total .rowh { font-weight: 750; border-top: 2px solid var(--ink-2); background: var(--surface-2); font-size: 13.5px; }
+table.track tbody tr:hover td, table.track tbody tr:hover .rowh { background-image: linear-gradient(rgba(127, 127, 127, 0.08), rgba(127, 127, 127, 0.08)); }
+sup.flag { font-size: 10px; margin-left: 1px; font-weight: 700; }
+sup.f-cost { color: var(--bad); }
+sup.f-stale { color: var(--warn-ink); }
+sup.f-estimated { color: var(--muted); }
+.seg.scopes { flex-wrap: wrap; }
+table.result tr.k-subtotal td { font-weight: 700; border-top: 2px solid var(--axis); background: var(--info-bg); }
+table.result tr.k-total td { font-weight: 750; border-top: 2px solid var(--ink-2); }
+table.result tr.k-cash td { color: var(--ink-2); font-style: italic; }
+table.result td small { font-weight: 400; }
+table.compact td { padding: 4px 8px; font-size: 13px; }
+td a { white-space: nowrap; }
+
+/* Month-end close: a numbered checklist that ends in the month's result and the close button */
+.close-head { display: grid; grid-template-columns: minmax(200px, auto) 1fr; gap: 8px 24px; align-items: center; }
+.close-head .kicker { font-size: 13px; color: var(--ink-2); font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; }
+.close-title { font-size: 30px; margin: 2px 0 6px; text-transform: capitalize; letter-spacing: -0.01em; }
+.close-head p { margin: 0; }
+ol.steps { list-style: none; margin: 0 0 16px; padding: 0; display: grid; gap: 12px; }
+.step { display: grid; grid-template-columns: 34px 1fr; gap: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow); }
+.step .dot { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 14px; background: var(--surface-2); color: var(--ink-2); }
+.step.s-ok .dot { background: var(--good); color: #fff; }
+.step.s-warn .dot { background: var(--warn-bg); color: var(--warn-ink); box-shadow: inset 0 0 0 1.5px var(--warn-ink); }
+.step.s-block .dot { background: var(--err-bg); color: var(--err-ink); box-shadow: inset 0 0 0 1.5px var(--err-ink); }
+.step .body { min-width: 0; }
+.step-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 4px 0 8px; }
+.step-head h3 { margin: 0; font-size: 16px; }
+.step-note { color: var(--ink-2); }
+.step.s-block .step-note { color: var(--err-ink); font-weight: 600; }
+.step.s-ok .step-note { color: var(--good); font-weight: 600; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.pending { color: var(--warn-ink); font-weight: 600; }
+ul.blockers { margin: 0 0 10px; padding-left: 18px; color: var(--err-ink); }
+button.big { padding: 10px 20px; font-size: 15.5px; }
+.result-hero { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px 24px; flex-wrap: wrap; margin-bottom: 12px; padding: 14px 16px; border-radius: 12px; background: linear-gradient(135deg, var(--surface-2), var(--info-bg)); }
+.result-hero .figure { font-size: 36px; font-weight: 750; letter-spacing: -0.02em; line-height: 1.1; margin: 2px 0; }
+.result-hero .chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.result-hero .chip { background: var(--surface); }
+.notice.cta { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+a.btn { display: inline-block; background: var(--accent); color: #fff; text-decoration: none; font-weight: 600; padding: 7px 14px; border-radius: 8px; white-space: nowrap; }
+
 @media (max-width: 760px) {
   .hero { grid-template-columns: 1fr; }
   .hero .figure { font-size: 42px; }
@@ -261,4 +322,9 @@ dl.glossary dd { margin: 0; }
   header.top .bar { gap: 8px; padding: 8px 12px; }
   nav.tabs { width: 100%; }
   th, td { padding: 6px 7px; }
+  table.track .rowh { min-width: 150px; max-width: 170px; }
+  .close-head { grid-template-columns: 1fr; }
+  .step { grid-template-columns: 1fr; padding: 12px; }
+  .step .dot { width: 26px; height: 26px; font-size: 13px; }
+  .result-hero .figure { font-size: 30px; }
 }

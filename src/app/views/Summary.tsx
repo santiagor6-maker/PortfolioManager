@@ -1,11 +1,11 @@
 import { useMemo } from 'preact/hooks';
-import { daysBetween } from '../../domain/dates.ts';
+import { addDays, daysBetween } from '../../domain/dates.ts';
 import { analyze } from '../analysis.ts';
 import type { Report } from '../analysis.ts';
 import { contextOf, coverage } from '../context.ts';
 import { Filters, useFilters } from '../components/Filters.tsx';
 import { Glossary } from '../components/Glossary.tsx';
-import { date, money, moneyShort, pct, ratio } from '../format.ts';
+import { date, money, moneyShort, monthLabel, pct, ratio, today } from '../format.ts';
 import { useDataset } from '../store.ts';
 import { LineChart } from '../components/LineChart.tsx';
 import { BarList, StackedBar, byClassOrder, classColor } from '../components/Bars.tsx';
@@ -48,6 +48,7 @@ export function Summary() {
     <>
       <Filters state={f} set={set} />
       <DataAlerts rep={rep} data={data} />
+      <CloseNudge data={data} />
 
       <section class="card hero" aria-label="Valor del portafolio">
         <div>
@@ -270,6 +271,22 @@ function DetailTable({ rep, ccy }: { rep: Report; ccy: string }) {
         {rep.buckets.some((b) => b.leveraged) && ' *n. c.: el TWR de un inmueble sobre planos no es comparable porque se paga a plazos sobre una base pequeña; mira la XIRR y la valorización del precio de lista en Activos.'}
       </p>
     </>
+  );
+}
+
+/** Points to the month-end close of the last finished month until it is closed. */
+function CloseNudge({ data }: { data: Dataset }) {
+  const month = addDays(`${today().slice(0, 8)}01`, -1);
+  if ((data.closes ?? []).some((c) => c.month === month) || !data.ledger.some((t) => t.date <= month)) return null;
+  return (
+    <div class="notice info cta" role="status">
+      <span>
+        <strong>Cierre de {monthLabel(month)} pendiente.</strong> Revisa movimientos, precios y valores de fin de mes y mira el resultado del mes.
+      </span>
+      <a class="btn" href={`#/cierre?mes=${month}`}>
+        Hacer el cierre
+      </a>
+    </div>
   );
 }
 

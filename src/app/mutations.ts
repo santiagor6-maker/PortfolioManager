@@ -1,6 +1,6 @@
 import { parseLedgerCsv } from '../data/csv.ts';
 import { emptyDataset, toStored } from '../data/json.ts';
-import type { Dataset, StoredPrice, StoredRate } from '../data/json.ts';
+import type { Dataset, MonthClose, StoredPrice, StoredRate } from '../data/json.ts';
 import { readFxRows, readPriceRows } from '../data/load.ts';
 import type { BookFile } from '../data/load.ts';
 import type { Account, Asset, Transaction } from '../domain/types.ts';
@@ -31,6 +31,15 @@ export function replaceTransactions(d: Dataset, ids: string[], txs: Transaction[
 
 export function deleteTransactions(d: Dataset, ids: string[]): Dataset {
   return { ...d, ledger: d.ledger.filter((t) => !t.id || !ids.includes(t.id)) };
+}
+
+/** Records (or re-records) the close of a month. */
+export function closeMonth(d: Dataset, c: MonthClose): Dataset {
+  return { ...d, closes: [...(d.closes ?? []).filter((x) => x.month !== c.month), c] };
+}
+
+export function reopenMonth(d: Dataset, month: string): Dataset {
+  return { ...d, closes: (d.closes ?? []).filter((x) => x.month !== month) };
 }
 
 export function upsertAsset(d: Dataset, a: Asset): Dataset {

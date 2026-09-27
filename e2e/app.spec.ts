@@ -96,19 +96,59 @@ test('buy a new asset created inline', async ({ page }) => {
   await expect(page.getByText('al costo · falta dato')).toBeVisible();
 });
 
-test('month-end close: enter copy portfolio value', async ({ page }, info) => {
+test('month-end close: enter a value, see the month result, close the month', async ({ page }, info) => {
   await loadDemo(page);
-  await page.getByRole('link', { name: 'Cierre mensual', exact: true }).click();
+  await expect(page.getByRole('link', { name: 'Hacer el cierre' })).toBeVisible();
+  await page.getByRole('link', { name: 'Cierre del mes', exact: true }).click();
+
+  // July: the value can be saved, but the month cannot be closed without July's exchange rate.
   await page.getByRole('combobox', { name: /^Mes/ }).selectOption('2025-07-31');
   const input = page.getByLabel('Valor de Copy portfolio Tech (demo) al 2025-07-31');
-  await expect(input).toBeVisible();
   await input.fill('1.702,35');
-  if (shots) await page.screenshot({ path: `${shots}/cierre-${info.project.name}.png`, fullPage: true });
-  await page.getByRole('button', { name: /Guardar cierre/ }).click();
-  await expect(page.getByRole('status')).toContainText('Guardados 1 valores');
+  await page.getByRole('button', { name: /Guardar valores/ }).click();
+  await expect(page.getByRole('status')).toContainText('Guardado 1 valor');
   await expect(page.getByText('Ya registrado: US$ 1.702,35')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Cerrar jul 2025' })).toBeDisabled();
 
-  await page.getByRole('link', { name: 'Movimientos' }).click();
+  // June: only the apartment's list price is missing; once entered, the result is final and the month closes.
+  await page.getByRole('combobox', { name: /^Mes/ }).selectOption('2025-06-30');
+  await expect(page.getByRole('button', { name: 'Cerrar jun 2025' })).toBeDisabled();
+  await page.getByLabel('Valor de Apartamento 60 m² (demo) al 2025-06-30').fill('395000000');
+  await page.getByRole('button', { name: /Guardar valores/ }).click();
+  await expect(page.getByText('Listo para cerrar')).toBeVisible();
+  await expect(page.locator('table.result tr.k-total')).toContainText('TOTAL');
+  await expect(page.locator('table.result tr.k-subtotal')).toContainText('Subtotal sin inmobiliario');
+  if (shots) await page.screenshot({ path: `${shots}/cierre-${info.project.name}.png`, fullPage: true });
+  await page.getByRole('button', { name: 'Cerrar jun 2025' }).click();
+  await expect(page.getByText(/Cerrado el/).first()).toBeVisible();
+
+  // A later change to a closed month is flagged.
+  await page.getByLabel('Valor de Apartamento 60 m² (demo) al 2025-06-30').fill('396000000');
+  await page.getByRole('button', { name: /Guardar valores/ }).click();
+  await expect(page.getByText(/Las cifras cambiaron desde que cerraste/)).toBeVisible();
+
+  await page.getByRole('link', { name: 'Movimientos', exact: true }).click();
   await page.getByLabel('Buscar activo o nota').fill('copy');
   await expect(page.getByRole('cell', { name: 'US$ 1.702,35' })).toBeVisible();
+});
+
+test('month-by-month tracking with total and subtotal without real estate', async ({ page }, info) => {
+  await loadDemo(page);
+  await page.getByRole('link', { name: 'Seguimiento' }).click();
+  const grid = page.locator('table.track');
+  await expect(grid.getByRole('rowheader', { name: 'TOTAL', exact: true })).toBeVisible();
+  await expect(grid.getByRole('rowheader', { name: 'Subtotal sin inmobiliario' })).toBeVisible();
+  await expect(grid.getByRole('rowheader', { name: /Copy portfolio Tech/ })).toBeVisible();
+  await expect(page.locator('.notice.warn')).toContainText('El seguimiento llega hasta jun 2025');
+  if (shots) await page.screenshot({ path: `${shots}/seguimiento-${info.project.name}.png`, fullPage: true });
+
+  await page.getByRole('button', { name: 'Rend. del mes' }).first().click();
+  await expect(grid.locator('tr.k-total td').last()).toHaveText(/%$/);
+  await grid.getByRole('button', { name: 'Acciones USD' }).click();
+  await expect(grid.getByRole('rowheader', { name: /Copy portfolio Tech/ })).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Sin inmobiliario' }).click();
+  await expect(page.getByText('todo menos el inmobiliario')).toBeVisible();
+  await grid.locator('thead').getByRole('link', { name: /jun/ }).click();
+  await expect(page.locator('.close-title')).toHaveText('jun 2025');
 });

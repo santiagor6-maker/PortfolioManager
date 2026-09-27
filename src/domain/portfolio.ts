@@ -31,9 +31,9 @@ export interface Series {
   flows: Flow[];
 }
 
-const BUCKET_FLOWS: ReadonlySet<TxType> = new Set(['BUY', 'SELL', 'WRITE_OFF', 'DIVIDEND', 'CAPITAL_CALL']);
+export const BUCKET_FLOWS: ReadonlySet<TxType> = new Set(['BUY', 'SELL', 'WRITE_OFF', 'DIVIDEND', 'CAPITAL_CALL']);
 const ACCOUNT_FLOWS: ReadonlySet<TxType> = new Set(['DEPOSIT', 'WITHDRAWAL', 'TRANSFER_IN', 'TRANSFER_OUT']);
-const TOTAL_FLOWS: ReadonlySet<TxType> = new Set(['DEPOSIT', 'WITHDRAWAL']);
+export const TOTAL_FLOWS: ReadonlySet<TxType> = new Set(['DEPOSIT', 'WITHDRAWAL']);
 
 function flowOf(book: Book, scope: Scope, tx: Transaction): Decimal | undefined {
   switch (scope.kind) {

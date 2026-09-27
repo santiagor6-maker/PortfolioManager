@@ -9,11 +9,7 @@ import { Filters, useFilters } from '../components/Filters.tsx';
 import { date, money, moneyShort, num, pct } from '../format.ts';
 import { BarList, byClassOrder, classColor } from '../components/Bars.tsx';
 import { useDataset } from '../store.ts';
-
-function queryParam(name: string): string | undefined {
-  const q = location.hash.split('?')[1];
-  return q ? new URLSearchParams(q).get(name) ?? undefined : undefined;
-}
+import { queryParam } from '../route.ts';
 
 export function PriceBadge({ p, asOf }: { p: PositionRow; asOf: string }) {
   if (!p.open) return <span class="badge">cerrada</span>;

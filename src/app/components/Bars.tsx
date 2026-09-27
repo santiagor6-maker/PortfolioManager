@@ -56,14 +56,15 @@ export interface BarItem {
 }
 
 /** Horizontal bars from a shared zero line (negatives extend left), value at the tip. */
-export function BarList({ items, label }: { items: BarItem[]; label: string }) {
+/** `pad`: px kept free beside the bars for the value text (longer texts need more). */
+export function BarList({ items, label, pad = 66 }: { items: BarItem[]; label: string; pad?: number }) {
   const lo = Math.min(0, ...items.map((i) => i.value));
   const hi = Math.max(0, ...items.map((i) => i.value));
   const span = hi - lo || 1;
   // The track keeps fixed margins for the value text: right of positives, left of negatives.
   const scale = (v: number) => (v / span) * 100;
   const zero = (-lo / span) * 100;
-  const margins = `margin-left:${lo < 0 ? 64 : 0}px;margin-right:${hi > 0 ? 68 : 0}px`;
+  const margins = `margin-left:${lo < 0 ? pad : 0}px;margin-right:${hi > 0 ? pad + 2 : 0}px`;
   return (
     <div class="bars" role="list" aria-label={label}>
       {items.map((i) => {
