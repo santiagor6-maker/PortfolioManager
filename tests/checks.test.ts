@@ -39,7 +39,7 @@ describe('month-end close status', () => {
     expect(s.priced).toBe(3);
     expect(s.due.map((x) => x.asset)).toEqual(['APTO-DEMO']);
     expect(s.due[0]!.previous?.date).toBe('2025-05-31');
-    expect(s.fx).toEqual([{ ccy: 'COP', last: '2025-06-30' }]);
+    expect(s.fx).toEqual([{ ccy: 'COP', last: '2025-06-30', stale: false }]);
     expect(s.benchmarks).toEqual([{ symbol: 'BENCH:DEMO-TR', name: 'Índice demo (retorno total)', last: '2025-06-30' }]);
     // Same figure as the Seguimiento grid.
     const t = tracking(contextOf(d), 'COP', TODAY);
@@ -58,6 +58,14 @@ describe('month-end close status', () => {
     const s = closeStatus(d, contextOf(d), '2025-06', TODAY);
     expect(s.stale.map((q) => [q.symbol, q.last])).toEqual([['SMPL', '2025-06-20']]);
     expect(s.missing.map((q) => [q.symbol, q.ccy, q.last])).toEqual([['ANDES', 'COP', '2025-06-10']]);
+  });
+
+  it('a TRM more than 5 days old at the month-end is flagged (the engine would still use it)', () => {
+    const d = sample();
+    const old = { ...d, fx: d.fx.filter((r) => !(r.date > '2025-05-22' && r.date <= '2025-05-31')) };
+    const s = closeStatus(old, contextOf(old), '2025-05', TODAY);
+    expect(s.error).toBeUndefined();
+    expect(s.fx).toEqual([{ ccy: 'COP', last: '2025-05-22', stale: true }]);
   });
 
   it('a month that has not ended, or without TRM, cannot be valued', () => {
@@ -107,6 +115,15 @@ describe('new movements (e.g. from a broker statement)', () => {
     expect(() => accountSnapshot(ctx, 'broker-usd', '2025-07-05', [tx('2025-07-02', 'broker-usd', 'SELL', 1, { ...ok, asset: 'ACME', q: 31 })])).toThrow(LedgerError);
   });
 
+  it('a transfer needs its other leg, in the ledger or in the same file', () => {
+    const out = tx('2025-07-01', 'broker-cop', 'TRANSFER_OUT', -2200000, { ccy: 'COP', transferId: 'T9' });
+    const inn = tx('2025-07-03', 'broker-usd', 'TRANSFER_IN', 510, { ...ok, transferId: 'T9' });
+    const dep = tx('2025-07-01', 'broker-cop', 'DEPOSIT', 2200000, { ccy: 'COP' });
+    expect(checkLedgerRows(ctx, [dep, out, inn], TODAY)).toEqual([]);
+    expect(codes(checkLedgerRows(ctx, [dep, out], TODAY))).toEqual(['TRANSFER_UNPAIRED']);
+    expect(codes(checkLedgerRows(ctx, [{ ...inn, transferId: undefined }], TODAY))).toEqual(['TRANSFER_NO_ID']);
+  });
+
   it('a movement already in the ledger is a duplicate; a used id is an error', () => {
     const f = checkLedgerRows(ctx, [tx('2025-03-12', 'broker-usd', 'DIVIDEND', '11.20', { ...ok, asset: 'SMPL', id: 's0' })], TODAY);
     expect(codes(f)).toEqual(['DUP_ID', 'DUPLICATE']);
@@ -144,6 +161,8 @@ describe('quotes and exchange rates to import', () => {
     expect(codes(fx('EUR/USD,2025-07-09,1.17,BCE'))).toEqual([]);
     expect(codes(fx('COP,2025-07-09,0.000231,x'))).toEqual(['JUMP']);
     expect(codes(fx('COP,2025-07-09,4330.1,'))).toEqual(['SOURCE']);
+    expect(() => readFxRows('ccy,date,per_usd,source\nEUR/USD,2025-07-09,0,x')).toThrow(/positiva/);
+    expect(codes(prices('SMPL,2025-07-09,104.5,usd,x'))).toContain('CCY');
   });
 });
 
@@ -157,14 +176,21 @@ describe('accounts and assets file (research, thesis)', () => {
     expect(patch([smpl])).toEqual({ findings: [], changes: [] });
   });
 
-  it('a dated, linked moat rating is a clean change', () => {
-    const r = patch([{ ...smpl, moats: [moat] }]);
+  it('a dated, linked moat rating is a clean change; kept ratings are not re-judged', () => {
+    // The sample's existing rating has no link: it is kept as it was, so it raises nothing.
+    const r = patch([{ ...smpl, moats: [...smpl.moats!, moat] }]);
     expect(r.findings).toEqual([]);
-    expect(r.changes).toEqual([{ asset: 'SMPL', field: 'moats', before: smpl.moats, after: [moat] }]);
+    expect(r.changes).toEqual([{ asset: 'SMPL', field: 'moats', before: smpl.moats, after: [...smpl.moats!, moat] }]);
+  });
+
+  it('dropping a provider is flagged; updating its rating is not', () => {
+    expect(codes(patch([{ ...smpl, moats: [moat] }]).findings)).toEqual(['MOAT_DROPPED']);
+    const updated = { ...smpl.moats![0]!, rating: 'narrow', asOf: '2025-07-05', url: 'https://example.com/r' };
+    expect(patch([{ ...smpl, moats: [updated] }]).findings).toEqual([]);
   });
 
   it('a rating needs a provider, a past date and a valid category or score', () => {
-    const r = patch([{ ...smpl, moats: [{ source: 'GuruFocus', score: 11 }, { source: '', rating: 'huge', asOf: '2025-08-01', url: 'http://x' }, { source: 'X', asOf: '2025-07-01' }] }]);
+    const r = patch([{ ...smpl, moats: [...smpl.moats!, { source: 'GuruFocus', score: 11 }, { source: '', rating: 'huge', asOf: '2025-08-01', url: 'http://x' }, { source: 'X', asOf: '2025-07-01' }] }]);
     expect(codes(r.findings)).toEqual(['MOAT_DATE', 'MOAT_SCORE', 'MOAT_NO_URL', 'MOAT_SOURCE', 'MOAT_DATE', 'MOAT_RATING', 'MOAT_URL', 'MOAT_EMPTY', 'MOAT_NO_URL']);
   });
 
@@ -191,6 +217,14 @@ describe('accounts and assets file (research, thesis)', () => {
     expect(codes(patch([{ id: 'X', name: 'X', ccy: 'USD', bucket: 'acciones_usd', pricing: 'market' }]).findings)).toEqual(['SYMBOL', 'NEW_ASSET']);
     expect(codes(patch([], [{ id: 'broker-usd', name: 'Otro', ccy: 'USD' }]).findings)).toEqual(['ACCOUNT_CHANGED']);
     expect(codes(checkAssetPatch(d, '{"assets": []}', TODAY).findings)).toEqual(['SHAPE']);
+    expect(codes(checkAssetPatch(d, '{"accounts": [], "assets": [null]}', TODAY).findings)).toEqual(['ASSET']);
+  });
+
+  it('a new asset needs a valid currency with rates; a new class or a shared symbol is flagged', () => {
+    const base = { id: 'NEW', name: 'Nueva', bucket: 'acciones_usd', pricing: 'market', symbol: 'NEW' };
+    expect(codes(patch([{ ...base, ccy: 'usd' }]).findings)).toEqual(['CCY', 'NEW_ASSET']);
+    expect(codes(patch([{ ...base, ccy: 'EUR' }]).findings)).toEqual(['NO_FX', 'NEW_ASSET']);
+    expect(codes(patch([{ ...base, ccy: 'COP', bucket: 'acciones-usd', symbol: 'SMPL' }]).findings)).toEqual(['BUCKET', 'SYMBOL_USED', 'NEW_ASSET']);
     expect(codes(checkAssetPatch(d, 'nope', TODAY).findings)).toEqual(['JSON']);
   });
 });

@@ -59,8 +59,8 @@ Indicadores shows what research providers say about each holding (`Asset.moats`)
 
 5. **Validate:** `node scripts/checks.ts assets <backup.json> tesis-….json`.
    - It lists every changed field. There must be no errors.
-   - There must be no `DROPS_FIELD` and no `USER_FIELD` unless the user explicitly asked for that change.
-   - `MOAT_NO_URL` means find the link.
+   - There must be no `DROPS_FIELD`, `USER_FIELD` or `MOAT_DROPPED` unless the user explicitly asked for that change.
+   - `MOAT_NO_URL` on a rating you added means find the link. Ratings kept as they were are not re-checked.
 
 6. **Hand over.**
    - Send the file (the file-sending tool when available, otherwise its path).

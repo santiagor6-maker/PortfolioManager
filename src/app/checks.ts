@@ -1,4 +1,4 @@
-import { addDays, isIsoDate, monthEnd } from '../domain/dates.ts';
+import { addDays, daysBetween, isIsoDate, monthEnd } from '../domain/dates.ts';
 import type { IsoDate } from '../domain/dates.ts';
 import { dec } from '../domain/money.ts';
 import type { Decimal } from '../domain/money.ts';
@@ -10,6 +10,7 @@ import { validateTransaction } from '../domain/validate.ts';
 import type { BookFile } from '../data/load.ts';
 import type { Dataset, MonthClose, StoredPrice, StoredRate } from '../data/json.ts';
 import type { Context } from './analysis.ts';
+import { BUCKET_LABELS } from './analysis.ts';
 import { tracking } from './tracking.ts';
 import type { TrackRow, Tracking } from './tracking.ts';
 
@@ -36,6 +37,40 @@ export function marketStatus(ctx: Context, t: Tracking, m: number): { rows: Trac
   return { rows, missing: rows.filter((r) => r.cells[m]!.flag === 'cost'), stale: rows.filter((r) => r.cells[m]!.flag === 'stale') };
 }
 
+/** Prices and rates older than this at a month-end are flagged (the engine still uses them up to 10 days). */
+export const STALE_DAYS = 5;
+
+export interface RateStatus {
+  ccy: string;
+  /** Latest stored rate on or before the month-end. */
+  last?: IsoDate;
+  /** No rate, or one more than STALE_DAYS old at the month-end. */
+  stale: boolean;
+}
+
+/** Exchange rates needed at a month-end (currencies of accounts holding something and of open positions) and how fresh they are. */
+export function fxStatus(d: Dataset, ctx: Context, end: IsoDate): RateStatus[] {
+  const ccys = new Set<string>();
+  const accCcy = (id: string) => ctx.book.accounts.get(id)?.ccy;
+  try {
+    const h = holdingsAt(ctx.ledger, end);
+    for (const p of h.positions.values()) {
+      if (!p.open) continue;
+      ccys.add(accCcy(p.account) ?? '');
+      ccys.add(ctx.book.assets.get(p.asset)?.ccy ?? '');
+    }
+    for (const [account, c] of h.cash) if (!c.isZero()) ccys.add(accCcy(account) ?? '');
+  } catch {
+    /* an impossible ledger is reported elsewhere */
+  }
+  ccys.delete('');
+  ccys.delete('USD');
+  return [...ccys].sort().map((ccy) => {
+    const last = d.fx.filter((r) => r.ccy === ccy && r.date <= end).reduce<string | undefined>((x, r) => (!x || r.date > x ? r.date : x), undefined);
+    return { ccy, ...(last ? { last } : {}), stale: !last || daysBetween(last, end) > STALE_DAYS };
+  });
+}
+
 export interface MissingQuote {
   asset: string;
   name: string;
@@ -54,8 +89,8 @@ export interface CloseStatus {
   missing: MissingQuote[];
   stale: MissingQuote[];
   due: ValuationDue[];
-  /** Latest stored rate per currency, on or before the month-end. */
-  fx: { ccy: string; last?: IsoDate }[];
+  /** Exchange rates the month needs and how fresh they are. */
+  fx: RateStatus[];
   /** Latest stored level per benchmark index (for Comparación; does not block the close). */
   benchmarks: { symbol: string; name: string; last?: IsoDate }[];
   /** Month-end totals in COP when the month can be valued. */
@@ -76,11 +111,7 @@ export function closeStatus(d: Dataset, ctx: Context, month: IsoDate, today: Iso
     const last = latest(d.prices.filter((p) => p.symbol === sym).map((p) => p.date));
     return { asset: a.id, name: a.name, ...(a.symbol ? { symbol: a.symbol } : {}), ccy: a.ccy, ...(last ? { last } : {}) };
   };
-  const ccys = new Set([...d.accounts.map((a) => a.ccy), ...d.assets.map((a) => a.ccy)].filter((c) => c !== 'USD'));
-  const fx = [...ccys].sort().map((ccy) => {
-    const last = latest(d.fx.filter((r) => r.ccy === ccy).map((r) => r.date));
-    return { ccy, ...(last ? { last } : {}) };
-  });
+  const fx = fxStatus(d, ctx, end);
   const benchmarks = d.benchmarks.map((b) => {
     const last = latest(d.prices.filter((p) => p.symbol === b.symbol).map((p) => p.date));
     return { symbol: b.symbol, name: b.name, ...(last ? { last } : {}) };
@@ -100,7 +131,7 @@ export function closeStatus(d: Dataset, ctx: Context, month: IsoDate, today: Iso
   };
 }
 
-/** Latest month-end strictly before `today` (the month to close). */
+/** The month to close by default: the latest month-end on or before `today`. */
 export function lastClosableMonth(today: IsoDate): IsoDate {
   const end = monthEnd(today);
   return end === today ? end : addDays(`${today.slice(0, 8)}01`, -1);
@@ -119,6 +150,13 @@ export function checkLedgerRows(ctx: Context, txs: readonly Transaction[], today
     if (tx.id && ids.has(tx.id)) out.push(err('DUP_ID', ref, `Ya existe un movimiento con id ${tx.id}; deja la columna id vacía`));
     const issues = validateTransaction(ledger, tx, { assets: ctx.book.assets, accounts: ctx.book.accounts, today });
     out.push(...issues.map((x) => ({ ...x, ref })));
+    if (tx.type === 'TRANSFER_IN' || tx.type === 'TRANSFER_OUT') {
+      const other = tx.type === 'TRANSFER_IN' ? 'TRANSFER_OUT' : 'TRANSFER_IN';
+      if (!tx.transferId) out.push(warn('TRANSFER_NO_ID', ref, 'Transferencia sin transfer_id: sin su pareja, cuenta como aporte o retiro del portafolio'));
+      else if (![...ctx.ledger, ...txs].some((t) => t.type === other && t.transferId === tx.transferId)) {
+        out.push(warn('TRANSFER_UNPAIRED', ref, `Falta la otra pata de la transferencia ${tx.transferId} (${other}): sin ella cuenta como aporte o retiro del portafolio`));
+      }
+    }
     if (!issues.some((x) => x.level === 'error')) {
       ledger = [...ledger, tx];
       if (tx.id) ids.add(tx.id);
@@ -166,7 +204,8 @@ export function checkPriceRows(d: Dataset, rows: readonly StoredPrice[], today: 
     if (seen.has(key)) out.push(err('DUPLICATE', ref, 'El archivo trae dos precios para el mismo símbolo y fecha'));
     seen.add(key);
     const asset = bySymbol.get(r.symbol);
-    if (asset && asset.ccy !== r.ccy) out.push(err('CCY', ref, `${asset.name} cotiza en ${asset.ccy}, no en ${r.ccy}`));
+    if (!/^[A-Z]{3}$/.test(r.ccy)) out.push(err('CCY', ref, `Moneda inválida: ${r.ccy} (código de 3 letras, ej. USD)`));
+    else if (asset && asset.ccy !== r.ccy) out.push(err('CCY', ref, `${asset.name} cotiza en ${asset.ccy}, no en ${r.ccy}`));
     if (!asset && !benches.has(r.symbol)) out.push(warn('UNKNOWN_SYMBOL', ref, `Ningún activo ni índice usa el símbolo ${r.symbol}; el precio no se usaría`));
     const old = d.prices.find((p) => p.symbol === r.symbol && p.date === r.date);
     if (old && !dec(old.close).eq(close)) out.push(warn('REPLACES', ref, `Reemplaza el precio guardado ${old.close} (${old.source})`));
@@ -192,12 +231,12 @@ export function checkFxRows(d: Dataset, rows: readonly StoredRate[], today: IsoD
     else if (r.date > today) out.push(err('FUTURE_DATE', ref, `La fecha ${r.date} está en el futuro`));
     if (!r.source || r.source === UNKNOWN_SOURCE) out.push(err('SOURCE', ref, 'Falta la fuente de la tasa (columna source)'));
     const v = dec(r.perUsd);
-    if (!v.gt(0)) out.push(err('RATE', ref, `La tasa debe ser positiva: ${r.perUsd}`));
+    if (!v.gt(0) || !v.isFinite()) out.push(err('RATE', ref, `La tasa debe ser un número positivo: ${r.perUsd}`));
     if (seen.has(key)) out.push(err('DUPLICATE', ref, 'El archivo trae dos tasas para la misma moneda y fecha'));
     seen.add(key);
     const old = d.fx.find((p) => p.ccy === r.ccy && p.date === r.date);
     if (old && !dec(old.perUsd).eq(v)) out.push(warn('REPLACES', ref, `Reemplaza la tasa guardada ${old.perUsd} (${old.source})`));
-    if (!v.gt(0) || !isIsoDate(r.date)) return;
+    if (!v.gt(0) || !v.isFinite() || !isIsoDate(r.date)) return;
     const prior = [...d.fx.filter((p) => p.ccy === r.ccy), ...rows.slice(0, i).filter((p) => p.ccy === r.ccy)];
     const j = jumps(prior, r, (p) => dec(p.perUsd));
     if (j && (j.ratio > 1.15 || j.ratio < 0.87)) {
@@ -249,7 +288,12 @@ export function checkAssetPatch(d: Dataset, json: string, today: IsoDate): { fin
     else if (!same(old, a)) findings.push(warn('ACCOUNT_CHANGED', `cuenta ${a.id}`, `Reemplaza la cuenta: ${JSON.stringify(old)} → ${JSON.stringify(a)}`));
   }
   const ids = new Set<string>();
+  const knownBuckets = new Set([...Object.keys(BUCKET_LABELS), ...d.assets.map((x) => x.bucket)]);
   for (const a of b.assets as (Asset & Record<string, unknown>)[]) {
+    if (typeof a !== 'object' || a === null || Array.isArray(a)) {
+      findings.push(err('ASSET', 'activo ?', `Cada activo debe ser un objeto: ${JSON.stringify(a)}`));
+      continue;
+    }
     const ref = `activo ${a.id ?? '?'}`;
     if (!a.id || !a.name || !a.ccy || !a.bucket || !['market', 'manual'].includes(a.pricing)) {
       findings.push(err('ASSET', ref, 'Un activo necesita id, name, ccy, bucket y pricing (market o manual)'));
@@ -258,6 +302,13 @@ export function checkAssetPatch(d: Dataset, json: string, today: IsoDate): { fin
     if (ids.has(a.id)) findings.push(err('DUP_ASSET', ref, 'El activo aparece dos veces en el archivo'));
     ids.add(a.id);
     if (a.pricing === 'market' && !a.symbol) findings.push(err('SYMBOL', ref, 'Un activo con precio de mercado necesita symbol'));
+    if (!/^[A-Z]{3}$/.test(a.ccy)) findings.push(err('CCY', ref, `Moneda inválida: ${a.ccy} (código de 3 letras en mayúsculas, ej. USD)`));
+    else if (a.ccy !== 'USD' && !d.fx.some((r) => r.ccy === a.ccy)) {
+      findings.push(warn('NO_FX', ref, `No hay tasas ${a.ccy}/USD: impórtalas en Datos antes de registrar movimientos de este activo, o la valoración se detiene`));
+    }
+    if (!knownBuckets.has(a.bucket)) findings.push(warn('BUCKET', ref, `Clase nueva "${a.bucket}": se mostrará como un grupo aparte (las conocidas: ${[...knownBuckets].join(', ')})`));
+    const twin = a.symbol ? d.assets.find((x) => x.symbol === a.symbol && x.id !== a.id) : undefined;
+    if (twin) findings.push(warn('SYMBOL_USED', ref, `El símbolo ${a.symbol} ya lo usa ${twin.id}: ambos tomarían los mismos precios`));
     const old = d.assets.find((x) => x.id === a.id) as (Asset & Record<string, unknown>) | undefined;
     if (!old) findings.push(warn('NEW_ASSET', ref, 'Crea un activo nuevo'));
     for (const k of new Set([...Object.keys(old ?? {}), ...Object.keys(a)])) {
@@ -272,7 +323,7 @@ export function checkAssetPatch(d: Dataset, json: string, today: IsoDate): { fin
       if ((k === 'target' || k === 'targetHigh') && !(isDecimal(after) && dec(after as string).gt(0))) {
         findings.push(err('TARGET', ref, `"${k}" debe ser un número positivo como texto (ej. "150.5"): ${JSON.stringify(after)}`));
       }
-      if (k === 'moats') findings.push(...checkMoats(after, ref, today));
+      if (k === 'moats') findings.push(...checkMoats(after, before, ref, today));
       if (k === 'fundamentals') findings.push(...checkFundamentals(after, ref, today));
     }
   }
@@ -284,15 +335,27 @@ export function checkAssetPatch(d: Dataset, json: string, today: IsoDate): { fin
 
 const pastDate = (v: unknown, today: IsoDate) => typeof v === 'string' && isIsoDate(v) && v <= today;
 
-function checkMoats(v: unknown, ref: string, today: IsoDate): Finding[] {
+/** New or changed ratings are validated; ratings kept as they were are not re-judged. A provider that disappears is flagged. */
+function checkMoats(v: unknown, before: unknown, ref: string, today: IsoDate): Finding[] {
   if (!Array.isArray(v)) return [err('MOATS', ref, '"moats" debe ser una lista')];
   const out: Finding[] = [];
+  const old = (Array.isArray(before) ? before : []) as Record<string, unknown>[];
   const sources = new Set<string>();
+  for (const o of old) {
+    if (!v.some((m) => typeof m === 'object' && m !== null && (m as Record<string, unknown>).source === o.source)) {
+      out.push(warn('MOAT_DROPPED', `${ref} · ${String(o.source)}`, `Quita la calificación de ${String(o.source)} (${JSON.stringify(o.rating ?? o.score)}, ${String(o.asOf)}): se conserva salvo que el usuario pida quitarla`));
+    }
+  }
   v.forEach((m: Record<string, unknown>, i) => {
-    const r = `${ref} · foso ${i + 1} (${String(m.source ?? '?')})`;
+    const r = `${ref} · foso ${i + 1} (${String(m?.source ?? '?')})`;
+    if (typeof m !== 'object' || m === null) {
+      out.push(err('MOAT', r, 'Cada calificación debe ser un objeto'));
+      return;
+    }
+    if (typeof m.source === 'string' && sources.has(m.source)) out.push(warn('MOAT_DUP', r, 'Hay dos calificaciones del mismo proveedor'));
+    if (typeof m.source === 'string') sources.add(m.source);
+    if (old.some((o) => same(o, m))) return;
     if (typeof m.source !== 'string' || !m.source.trim()) out.push(err('MOAT_SOURCE', r, 'Falta el proveedor (source)'));
-    else if (sources.has(m.source)) out.push(warn('MOAT_DUP', r, 'Hay dos calificaciones del mismo proveedor'));
-    else sources.add(m.source);
     if (!pastDate(m.asOf, today)) out.push(err('MOAT_DATE', r, `Falta la fecha (asOf AAAA-MM-DD, no futura): ${JSON.stringify(m.asOf)}`));
     if (m.rating !== undefined && !['wide', 'narrow', 'none'].includes(m.rating as string)) out.push(err('MOAT_RATING', r, `rating debe ser wide, narrow o none: ${JSON.stringify(m.rating)}`));
     if (m.score !== undefined && !(typeof m.score === 'number' && m.score >= 0 && m.score <= 10)) out.push(err('MOAT_SCORE', r, `score debe ser un número de 0 a 10: ${JSON.stringify(m.score)}`));

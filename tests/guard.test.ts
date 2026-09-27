@@ -11,7 +11,7 @@ describe('pre-commit: personal data stays out of the repo', () => {
 
   it('lets code, docs, configuration and synthetic samples through', () => {
     for (const p of [
-      'src/app/checks.ts', 'samples/ledger.csv', 'samples/book.json', 'tests/fixtures/x.json', 'package.json', 'package-lock.json',
+      'src/app/checks.ts', 'samples/ledger.csv', 'tests/fixtures/rows.csv', 'samples/book.json', 'tests/fixtures/x.json', 'package.json', 'package-lock.json',
       'tsconfig.json', '.claude/settings.json', '.claude/skills/import-statement/SKILL.md', '.env.example', 'docs/demo.png', 'README.md',
     ]) expect(pathProblem(p), p).toBeUndefined();
   });
@@ -42,6 +42,8 @@ describe('Claude Code hooks', () => {
     for (const c of [
       'git commit --no-verify -m "x"', 'git commit -nm "x"', 'git add . && git commit -n -m x', 'git push --no-verify',
       'git -c core.hooksPath=/dev/null commit -m x', 'git config core.hooksPath /tmp/none', 'git config --unset core.hooksPath',
+      'git commit --no-veri -m x', 'git -c core.hookspath=/dev/null commit -m x',
+      'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null git commit -m x',
     ]) expect(bypassesHooks(c), c).toBeDefined();
   });
 

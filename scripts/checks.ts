@@ -21,7 +21,7 @@ import { readFxRows, readPriceRows } from '../src/data/load.ts';
 import { daysBetween, isIsoDate } from '../src/domain/dates.ts';
 import { LedgerError } from '../src/domain/holdings.ts';
 import { dec } from '../src/domain/money.ts';
-import { accountSnapshot, checkAssetPatch, checkFxRows, checkLedgerRows, checkPriceRows, closeStatus, lastClosableMonth } from '../src/app/checks.ts';
+import { STALE_DAYS, accountSnapshot, checkAssetPatch, checkFxRows, checkLedgerRows, checkPriceRows, closeStatus, lastClosableMonth } from '../src/app/checks.ts';
 import type { Finding } from '../src/app/checks.ts';
 import { contextOf } from '../src/app/context.ts';
 import { date, money, num, today as systemToday } from '../src/app/format.ts';
@@ -82,10 +82,19 @@ switch (cmd) {
     const s = closeStatus(d, ctx, month, today);
     console.log(`Cierre de ${date(s.month)}: ${s.closed ? `cerrado el ${date(s.closed.closedAt)}` : 'sin cerrar'}`);
     if (s.error) console.log(`BLOQUEA  ${s.error}`);
-    for (const r of s.fx) console.log(`Tasa ${r.ccy}/USD: último dato ${r.last ? date(r.last) : 'ninguno'}`);
+    let warnings = s.stale.length;
+    for (const r of s.fx) {
+      if (r.stale) warnings++;
+      const age = r.last ? daysBetween(r.last, s.month) : undefined;
+      console.log(`${r.stale ? 'AVISO    ' : ''}Tasa ${r.ccy}/USD: último dato ${r.last ? date(r.last) : 'ninguno'}${r.stale && age !== undefined ? ` (${age} días antes del cierre; falta la del cierre)` : ''}`);
+    }
     for (const b of s.benchmarks) {
-      const old = !b.last || daysBetween(b.last, s.month) > 5;
-      console.log(`${old ? 'AVISO    ' : ''}Índice ${b.symbol} (${b.name}): último dato ${b.last ? date(b.last) : 'ninguno'}${old ? ' — la Comparación de ese mes quedaría sin índice' : ''}`);
+      // The comparison uses an index level up to 10 days old (SeriesPriceSource default).
+      const age = b.last ? daysBetween(b.last, s.month) : undefined;
+      const flag = age === undefined || age > STALE_DAYS;
+      if (flag) warnings++;
+      const why = age === undefined || age > 10 ? ' — la Comparación de ese mes quedaría sin índice' : flag ? ` (${age} días antes del cierre)` : '';
+      console.log(`${flag ? 'AVISO    ' : ''}Índice ${b.symbol} (${b.name}): último dato ${b.last ? date(b.last) : 'ninguno'}${why}`);
     }
     console.log(`Precios de mercado al cierre: ${s.priced} con precio`);
     for (const q of s.missing) console.log(`FALTA    precio ${q.symbol ?? q.asset} (${q.name}, ${q.ccy}); último guardado: ${q.last ? date(q.last) : 'ninguno'}`);
@@ -101,7 +110,11 @@ switch (cmd) {
       console.log(`AVISO    Las cifras cambiaron desde el cierre: el total era ${money(dec(s.closed.total), 'COP')} y ahora es ${money(s.total, 'COP')}`);
     }
     const blocked = !!s.error || s.missing.length > 0 || s.due.length > 0;
-    console.log(blocked ? '\nFaltan datos para cerrar el mes.' : '\nListo para cerrar en la app (Cierre del mes → Cerrar).');
+    console.log(
+      blocked ? '\nFaltan datos para cerrar el mes.'
+      : warnings ? '\nLa app deja cerrar, pero hay avisos: busca los datos del cierre antes de cerrar (con datos viejos las cifras quedan imprecisas).'
+      : '\nListo para cerrar en la app (Cierre del mes → Cerrar).',
+    );
     process.exit(blocked ? 1 : 0);
   }
   case 'ledger': {
@@ -123,6 +136,8 @@ switch (cmd) {
     if (!file) usage();
     const { findings, changes } = checkAssetPatch(d, read(file), today);
     for (const c of changes) console.log(`CAMBIO   ${c.asset}.${c.field}: ${JSON.stringify(c.before)} → ${JSON.stringify(c.after)}`);
+    const added = findings.filter((f) => f.code === 'NEW_ASSET' || f.code === 'NEW_ACCOUNT').length;
+    if (added) console.log(`NUEVOS   ${count(added, 'activo o cuenta nueva', 'activos o cuentas nuevas')}`);
     report(findings, changes.length, ['campo cambiado', 'campos cambiados']);
   }
   case 'holdings': {
@@ -132,6 +147,13 @@ switch (cmd) {
     const acc = d.accounts.find((a) => a.id === account);
     if (!acc) usage(`Cuenta desconocida: ${account}. Cuentas: ${d.accounts.map((a) => a.id).join(', ')}`);
     const txs = extra ? parse(extra, () => parseLedgerCsv(read(extra))) : [];
+    // Reconcile only rows the app would accept.
+    const invalid = checkLedgerRows(ctx, txs, today).filter((f) => f.level === 'error');
+    if (invalid.length) {
+      for (const f of invalid) console.log(`ERROR  [${f.code}] ${f.ref}: ${f.message}`);
+      console.log(`\nCorrige los movimientos (node scripts/checks.ts ledger …) antes de cuadrar la cuenta.`);
+      process.exit(1);
+    }
     try {
       const snap = accountSnapshot(ctx, account, on, txs);
       console.log(`${acc.name} (${account}) al ${date(on)}${extra ? `, con ${count(txs.length, 'movimiento nuevo', 'movimientos nuevos')}` : ''}`);

@@ -28,12 +28,14 @@ The user's data lives only in their browser (IndexedDB). You work from a backup 
    node scripts/checks.ts status <backup.json> [AAAA-MM]
    ```
    It lists:
-   - the latest exchange rate per currency and the latest index level;
+   - the exchange rates the month needs and the index levels, with an `AVISO` when one is more than 5 days old at the month-end;
    - market prices that are `FALTA` (missing: valued at cost) or `AVISO` (more than 5 days old);
    - manual month-end values still due (copy portfolios, funds, property);
    - whether the month is already closed, and whether its figures changed since.
 
    Summarize it for the user in a short list.
+
+   "La app deja cerrar, pero hay avisos" is not done: the engine still values with a rate or price up to 10 days old, so the figures would be off. Fetch every `AVISO` item too. Leave one open only when the source truly has nothing newer (e.g. a market holiday), and say so.
 
 3. **Movements of the month.** Ask whether there were buys, sells, dividends, deposits, withdrawals or transfers not yet recorded.
    - If they send statements, follow the `import-statement` skill for those rows.

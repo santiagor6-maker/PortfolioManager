@@ -33,7 +33,7 @@ const MAX_BYTES = 2_000_000;
 export function pathProblem(path: string): string | undefined {
   const name = path.split('/').pop()!;
   if (SHEETS.test(path)) return 'hoja de cálculo o extracto: los archivos con datos personales no van al repositorio';
-  if (/\.csv$/i.test(path) && !/^samples\//.test(path)) return 'CSV fuera de samples/: los datos reales no van al repositorio (los sintéticos van en samples/)';
+  if (/\.csv$/i.test(path) && !SYNTHETIC.test(path)) return 'CSV fuera de samples/ o tests/: los datos reales no van al repositorio (los sintéticos van en samples/ o tests/)';
   if (/^\.env/.test(name) && name !== '.env.example') return 'archivo .env: las claves van en variables de entorno, no en el repositorio';
   if (IMAGES.test(path) && !/^docs\//.test(path)) return 'imagen fuera de docs/: las capturas pueden mostrar cifras reales (si es sintética, muévela a docs/)';
   if (DATA_NAME.test(path)) return 'el nombre parece de un respaldo o extracto personal';
@@ -128,15 +128,15 @@ function preCommit(): number {
 /** Git commands that would skip or disable the pre-commit hook. */
 export function bypassesHooks(command: string): string | undefined {
   // Look at each simple command of a compound one (a && b; c | d).
+  if (/GIT_CONFIG_(PARAMETERS|COUNT|KEY_\d+)/.test(command) && /hookspath/i.test(command)) return 'cambia core.hooksPath por variables de entorno';
   for (const part of command.split(/&&|\|\||;|\||\n/)) {
     const c = part.trim();
     if (!/(^|\s)git(\s|$)/.test(c)) continue;
-    if (/--no-verify\b/.test(c)) return 'usa --no-verify';
+    // Git accepts any unambiguous prefix of a long option (--no-veri…), and config keys in any case.
+    if (/--no-veri/.test(c)) return 'usa --no-verify';
     const bare = c.replace(/(["']).*?\1/g, '');
     if (/\bgit(\s+-[cC]\s+\S+|\s+--?[\w-]+(=\S+)?)*\s+commit\b/.test(bare) && /\s-[a-zA-Z]*n[a-zA-Z]*(\s|$)/.test(bare)) return 'usa commit -n (se salta el hook)';
-    if (/-c\s+core\.hooksPath\s*=/.test(c)) return 'cambia core.hooksPath en la línea de comandos';
-    const cfg = c.match(/\bconfig\b.*\bcore\.hooksPath\b\s*(\S*)/);
-    if (cfg && (/--unset/.test(c) || (cfg[1] !== undefined && cfg[1] !== '' && cfg[1].replace(/["']/g, '') !== '.githooks'))) {
+    if (/core\.hookspath/i.test(c) && !/^git\s+config\s+(--local\s+)?core\.hooksPath(\s+["']?\.githooks["']?)?$/.test(c)) {
       return 'cambia core.hooksPath (debe ser .githooks)';
     }
   }

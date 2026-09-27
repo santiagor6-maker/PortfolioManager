@@ -42,6 +42,7 @@ export function readFxRows(text: string): StoredRate[] {
   return table(text, ['ccy', 'date', 'per_usd']).map((r) => {
     const pair = r.ccy!.endsWith('/USD');
     const v = dec(r.per_usd!);
+    if (!v.gt(0)) throw new CsvError(`${r.ccy} ${r.date}: la tasa debe ser positiva (${r.per_usd})`);
     return { ccy: pair ? r.ccy!.slice(0, -4) : r.ccy!, date: r.date!, perUsd: (pair ? dec(1).div(v) : v).toString(), source: r.source || 'desconocida' };
   });
 }

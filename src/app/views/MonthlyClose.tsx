@@ -9,7 +9,7 @@ import type { Transaction } from '../../domain/types.ts';
 import { validateTransaction } from '../../domain/validate.ts';
 import type { Context } from '../analysis.ts';
 import { bucketLabel } from '../analysis.ts';
-import { marketStatus } from '../checks.ts';
+import { fxStatus, marketStatus } from '../checks.ts';
 import { BarList, classColor } from '../components/Bars.tsx';
 import type { BarItem } from '../components/Bars.tsx';
 import { contextOf } from '../context.ts';
@@ -120,6 +120,7 @@ export function MonthlyClose() {
   const txs = useMemo(() => sortLedger(ctx.ledger).filter((x) => x.date >= start && x.date <= month && x.type !== 'VALUATION'), [ctx, month]);
   // Step 2: market prices and exchange rate at the month-end.
   const { rows: marketRows, missing, stale } = marketStatus(ctx, t, m);
+  const oldFx = useMemo(() => (m < 0 ? [] : fxStatus(data, ctx, month).filter((r) => r.stale)), [data, ctx, month, m]);
   // Step 3: manual values.
   const rows = useMemo(() => (month ? manualRows(ctx, month) : []), [ctx, month]);
   const due = useMemo(() => (month ? valuationsDue(ctx.ledger, ctx.book.assets, month) : []), [ctx, month]);
@@ -262,7 +263,7 @@ export function MonthlyClose() {
         <Step
           n={2}
           title="Precios de mercado y TRM"
-          status={m < 0 || missing.length ? 'block' : stale.length ? 'warn' : 'ok'}
+          status={m < 0 || missing.length ? 'block' : stale.length || oldFx.length ? 'warn' : 'ok'}
           note={m < 0 ? 'Faltan datos' : missing.length ? `${missing.length} sin precio` : `${marketRows.length} activos con precio al ${date(month)}`}
         >
           {m < 0 && (
@@ -272,6 +273,11 @@ export function MonthlyClose() {
           )}
           {missing.length > 0 && <p class="small">Sin precio, se valorarían al costo: {missing.map((r) => r.label).join(', ')}. Cárgalos en <a href="#/datos">Datos</a>.</p>}
           {stale.length > 0 && <p class="small">Con un precio de más de 5 días antes del cierre: {stale.map((r) => r.label).join(', ')}.</p>}
+          {oldFx.length > 0 && (
+            <p class="small">
+              Tasa de cambio de más de 5 días antes del cierre: {oldFx.map((r) => `${r.ccy}/USD del ${date(r.last)}`).join(', ')}. Importa la del cierre en <a href="#/datos">Datos</a>.
+            </p>
+          )}
         </Step>
 
         <Step

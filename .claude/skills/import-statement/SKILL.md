@@ -49,16 +49,20 @@ The ledger is the source of truth. A statement becomes ledger rows in the app's 
    - `note`: the statement and period (e.g. "extracto IBKR sep-2026"), plus anything a reader needs.
    - **Currency:** never convert with a rate you picked. If a trade in another currency was charged to the account, use the amount charged in the account currency, as the statement shows it.
    - **Unknown asset** (not in the backup's `assets`): do not invent one. Ask the user for its name, class (`bucket`), symbol and currency. Prepare it in an accounts-and-assets JSON (`{"accounts": [], "assets": [...]}`), checked with `node scripts/checks.ts assets <backup.json> nuevos.json`. It gets imported before the movements.
+     - `NO_FX` means the app has no rates for that currency yet: prepare them too (see the `month-close` skill) and have them imported first.
+     - `SYMBOL_USED` means another asset already takes that symbol's prices: it is probably the same asset under another id.
 
 4. **Validate** with `node scripts/checks.ts ledger <backup.json> movimientos.csv`.
    - Errors (overselling, wrong sign, wrong currency, unknown account or asset, future date) must be fixed.
    - `DUPLICATE` means the row is already in the ledger: drop it unless the user confirms it really happened twice.
    - `NEGATIVE_CASH` usually means a missing deposit or transfer: look for it in the statement before asking.
+   - `TRANSFER_UNPAIRED` / `TRANSFER_NO_ID`: a transfer needs both legs with the same `transfer_id`. The other leg comes from the other account's statement, or is already in the ledger. A lone leg counts as money put into or taken out of the portfolio and distorts XIRR and TWR.
 
 5. **Reconcile** with the statement's closing balances:
    ```
    node scripts/checks.ts holdings <backup.json> <cuenta> <fecha-de-cierre-del-extracto> movimientos.csv
    ```
+   - It refuses to run while the rows have errors: fix them first.
    - Units must match the statement exactly.
    - Cash should match to the cent. Explain any difference (e.g. a fee the statement shows elsewhere) or ask; don't hand over an unexplained difference as settled.
    - Show the user a small table: statement vs ledger, per asset and cash.
