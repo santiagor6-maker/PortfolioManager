@@ -20,7 +20,7 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
 
 ## Registro
 
-**2026-09-28 — Pestaña Dividendos** (ver git log)
+**2026-09-28 — Pestaña Dividendos** (55f80cc)
 - `src/app/dividends.ts`: dividendos netos por mes, año y activo, a la tasa de cada fecha; últimos 12 meses frente a los 12 anteriores y año corrido, con la parte estimada.
 - Proyección de 12 meses: repite los pagos de los últimos 12 meses de lo que sigue en cartera, escalada a las unidades de hoy (en fondos, al capital). Incluye calendario y rentabilidad neta sobre valor y sobre costo.
 - Revisión de `finance-reviewer`: unidades al inicio del día del pago, fondos con retiro parcial, 29 de febrero, rentabilidad sin precio, estimados marcados, crecimiento solo con años completos. Todo corregido y con prueba.
