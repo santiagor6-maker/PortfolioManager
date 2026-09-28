@@ -2,6 +2,8 @@
 [build]
   command = "npm run build"
   publish = "dist"
+  # Skip the build when a push only touches bitacora.md. Builds whenever the refs match (first or manual deploy) or the diff fails.
+  ignore = "[ \"$CACHED_COMMIT_REF\" != \"$COMMIT_REF\" ] && git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- . ':(exclude)bitacora.md'"
 
 [build.environment]
   NODE_VERSION = "22"

@@ -13,7 +13,7 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
   2. Supabase con datos cifrados en el navegador.
   3. Precios automáticos (Twelve Data, TRM y cripto).
   4. Fundamentales mensuales desde SEC EDGAR al abrir la app.
-- Sitio `portfoliomanager-sr` creado en Netlify, sin deploy todavía. El comando de deploy fue bloqueado por permisos; queda en manos del usuario. Proyecto de Supabase: pendiente.
+- Netlify `portfoliomanager-sr` conectado a GitHub. Publica la rama `claude/stoic-clarke-1c1mln` cuando el usuario la configure como rama de producción, y cada push se publica. Proyecto de Supabase: pendiente.
 - Pendiente del usuario:
   - valores manuales de jul–sep 2026; el cierre de julio 2026 solo espera esto;
   - certificado de dividendos COP;
@@ -23,6 +23,11 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
 - Mejora anotada: el aviso de TRM del Cierre nombra el primer mes pendiente, no el mes que se está cerrando.
 
 ## Registro
+
+**2026-09-28 — Netlify desde GitHub**
+- El 404 venía de que Netlify publicaba `main`, que solo tiene `CLAUDE.md`. El usuario eligió publicar la rama de trabajo, sin pull request.
+- `netlify.toml` omite el build cuando un push solo cambia `bitacora.md`. Construye siempre en el primer deploy y en los manuales.
+- Como cada push se publica, antes de subir código se corren build y e2e.
 
 **2026-09-28 — Netlify** (061ab77)
 - `netlify.toml`: build `npm run build`, publica `dist/`.
