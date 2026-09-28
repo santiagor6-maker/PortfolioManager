@@ -6,6 +6,7 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
 - Terminado:
   - Fases 0–3: auditoría, registro de movimientos, motor de cálculo y app local.
   - Skills, subagentes y hooks.
+  - Visualizaciones de análisis: Resumen modular, puente de ganancia, mapa mensual, riesgo, peso vs potencial.
 - Fase 4 (precios y TRM automáticos): sin empezar.
 - Fase 5 (Netlify y Supabase): pendiente de aprobación.
 - Pendiente del usuario:
@@ -16,6 +17,12 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
 - Mejora anotada: el aviso de TRM del Cierre nombra el primer mes pendiente, no el mes que se está cerrando.
 
 ## Registro
+
+**2026-09-28 — Visualizaciones de análisis** (51c8de6)
+- Resumen modular: cada bloque se muestra, oculta o reordena ("Personalizar el resumen"), guardado en el navegador.
+- Bloques nuevos: ¿De dónde viene tu ganancia? (puente valor inicial → aportes → ganancia por clase → valor final, más las posiciones que más sumaron/restaron), mapa de calor de rentabilidad mensual por año, y riesgo (volatilidad, máxima caída, mejor/peor mes, curva de caídas).
+- Comparación: volatilidad y caídas del portafolio frente al índice. Indicadores: dispersión peso vs potencial al objetivo.
+- Revisión de `finance-reviewer`: meses con flujos grandes frente al capital (Modified Dietz poco fiable) se marcan ≈ y salen de las cifras de riesgo; inmueble a plazos = n. c.; estimados marcados.
 
 **2026-09-28 — Regla de bitácora** (b880d64 y siguiente)
 - `CLAUDE.md` exige registrar cada avance en esta bitácora.
