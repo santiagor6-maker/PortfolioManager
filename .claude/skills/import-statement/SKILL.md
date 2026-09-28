@@ -32,7 +32,7 @@ Before step 6, re-run its `checks.ts ledger` and `holdings` commands yourself. T
 2. **Match the house conventions.**
    - Look at the last movements of that account in the backup, e.g. by extracting them with a short script from the backup JSON.
    - Copy their conventions: trade date vs settlement date, how fees and withholding appear, and asset ids.
-   - If the account has no history, use the trade date and ask.
+   - If the account has no history, use the trade date and ask. If the statement prints a single date per line, use it.
 
 3. **Map each line** to CSV rows with the columns `date,account,type,asset,qty,amount,ccy,fee,estimated,transfer_id,note`.
    - `amount` is the cash effect on the account, in the account currency (`ccy` = the account's currency, always).
@@ -42,16 +42,17 @@ Before step 6, re-run its `checks.ts ledger` and `holdings` commands yourself. T
    |---|---|
    | Buy | `BUY`, `qty` = units, `amount` = −(total charged, fees included), `fee` = the commission (informative) |
    | Sell | `SELL`, `qty` = units, `amount` = + net proceeds after fees |
-   | Dividend | `DIVIDEND` with `asset`, `amount` = + net received. Put gross and withholding in `note` (e.g. "bruto 16,00; retención 30 %"). |
+   | Dividend | `DIVIDEND` with `asset`, `amount` = + net received. When the statement shows them, put gross and withholding in `note` (e.g. "bruto 16,00; retención 30 %"), even if older notes of the account say less. |
    | Dividend paid out to a bank account (not kept in the broker) | `DIVIDEND` + a `WITHDRAWAL` of the same amount on the same day |
    | Deposit / withdrawal of your money | `DEPOSIT` (+) / `WITHDRAWAL` (−) |
    | Transfer between two of the user's accounts | `TRANSFER_OUT` (−) in one and `TRANSFER_IN` (+) in the other, same `transfer_id`, each in its own account currency with the amounts actually debited and credited |
    | Interest on cash | `INTEREST` (+) |
    | Fee or tax not tied to a trade | `FEE` (−) / `TAX` (−) |
    | Contribution to a fund, copy portfolio or other asset priced by statement | `BUY` without `qty` |
-   | Month-end value of such an asset | `VALUATION`, `amount` = + value, no cash effect |
+   | Month-end value of such an asset | `VALUATION`, `amount` = + value, no cash effect. Only when the statement closes on the last day of the month (see below). |
 
    More rules:
+   - **A value from a statement that closes mid-month** is not a `VALUATION`. Any valuation dated inside a month counts as that month's close, and it would hide the real month-end value. Leave it out, and tell the user that the month-end value comes with the close.
    - `estimated` stays empty for statement data. Use `true` only for reconstructed figures the user asked for.
    - `note`: the statement and period (e.g. "extracto IBKR sep-2026"), plus anything a reader needs.
    - **Currency:** never convert with a rate you picked. If a trade in another currency was charged to the account, use the amount charged in the account currency, as the statement shows it.
