@@ -29,7 +29,7 @@ interface Props {
 const M = { l: 58, r: 132, t: 14, b: 28 };
 const ms = (d: string) => Date.parse(`${d}T00:00:00Z`);
 
-function niceTicks(lo: number, hi: number, n = 5): number[] {
+export function niceTicks(lo: number, hi: number, n = 5): number[] {
   const span = hi - lo || 1;
   const step0 = span / n;
   const mag = 10 ** Math.floor(Math.log10(step0));

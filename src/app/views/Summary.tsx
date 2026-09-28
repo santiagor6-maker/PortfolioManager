@@ -1,19 +1,40 @@
 import { useMemo, useState } from 'preact/hooks';
 import { addDays, daysBetween } from '../../domain/dates.ts';
-import { analyze, analyzeMix } from '../analysis.ts';
+import { analyze, analyzeMix, windowStart } from '../analysis.ts';
 import type { Report, ScopeResult } from '../analysis.ts';
 import { contextOf, coverage } from '../context.ts';
 import { Filters, useFilters } from '../components/Filters.tsx';
 import { Glossary } from '../components/Glossary.tsx';
 import { date, money, moneyShort, monthLabel, pct, ratio, today } from '../format.ts';
 import { useDataset, usePref } from '../store.ts';
-import { CASH, parseSelection, pick } from '../selection.ts';
-import type { Selection } from '../selection.ts';
+import { CASH, moveSlot, parseLayout, parseSelection, pick, saveLayout } from '../selection.ts';
+import type { Selection, Slot } from '../selection.ts';
+import { combineRows, tracking } from '../tracking.ts';
+import type { TrackRow, Tracking } from '../tracking.ts';
+import { gainBridge, gainOver, returnsByYear, riskOf } from '../insights.ts';
+import { ReturnsHeatmap } from '../components/Heatmap.tsx';
+import { Bridge } from '../components/Bridge.tsx';
+import type { BridgeStep } from '../components/Bridge.tsx';
 import { LineChart } from '../components/LineChart.tsx';
 import { BarList, StackedBar, byClassOrder, classColor } from '../components/Bars.tsx';
 import type { BarItem, Part } from '../components/Bars.tsx';
 import { dec } from '../../domain/money.ts';
 import type { Dataset } from '../../data/json.ts';
+
+/** The Resumen's blocks, in their default order. The user can hide them and change the order. */
+const MODULES = [
+  { id: 'valor', label: 'Valor y evolución' },
+  { id: 'kpis', label: 'Rentabilidad y ganancia' },
+  { id: 'mix', label: '¿Dónde está tu dinero?' },
+  { id: 'bridge', label: '¿De dónde viene tu ganancia?' },
+  { id: 'heatmap', label: 'Rentabilidad mes a mes' },
+  { id: 'risk', label: 'Riesgo y caídas' },
+  { id: 'classes', label: 'Rendimiento por clase' },
+  { id: 'table', label: 'Tabla detallada por clase' },
+] as const;
+const MODULE_IDS = MODULES.map((m) => m.id);
+/** Blocks built on the month-by-month tracking (computed only when one of them is shown). */
+const MONTHLY = new Set(['bridge', 'heatmap', 'risk']);
 
 const sign = (x: number | undefined | null) => (x === undefined || x === null ? '' : x >= 0 ? 'pos' : 'neg');
 
@@ -49,6 +70,22 @@ export function Summary() {
     () => (sel ? analyzeMix(ctx, sel.filter((x) => x !== CASH), sel.includes(CASH), f.ccy, f.asOf, f.window) : undefined),
     [ctx, saved, f.ccy, f.asOf, f.window],
   );
+  const [layoutPref, setLayoutPref] = usePref<string>('summary:layout', '');
+  const layout = parseLayout(layoutPref, MODULE_IDS);
+  const needMonthly = layout.some((s) => s.on && MONTHLY.has(s.id));
+  const trk = useMemo(() => (needMonthly ? tracking(ctx, f.ccy, f.asOf) : undefined), [ctx, f.ccy, f.asOf, needMonthly]);
+  const monthly = useMemo(() => {
+    if (!trk) return undefined;
+    const rows = [...trk.classes.filter((c) => on(c.bucket!)).sort((a, b) => byClassOrder(a.bucket!, b.bucket!)), ...(on(CASH) ? [trk.cash] : [])];
+    // Adding up the rows gives the total's figures plus the data-quality flags of the months.
+    const row = combineRows(rows, 'mix', sel ? 'Selección' : 'Todo');
+    const assets = trk.assets.filter((a) => on(a.bucket!));
+    // A class bought on a payment plan (property off-plan) has a TWR on a small leveraged base: not comparable,
+    // as its class card says. Its monthly returns and risk are not shown when the selection is only that.
+    const picked = rep.buckets.filter((b) => on(b.bucket));
+    const leveraged = picked.length > 0 && picked.every((b) => b.leveraged);
+    return { trk, rows, row, assets, leveraged };
+  }, [trk, saved, rep]);
   const t = mix ?? rep.total;
   const withCash = on(CASH);
   const gain = t.perf ? t.perf.endValue.minus(t.perf.startValue).minus(t.perf.netFlows) : undefined;
@@ -67,113 +104,139 @@ export function Summary() {
       <Picker all={all} sel={sel} labelOf={labelOf} choose={choose} reset={() => setSaved('')} multi={multi} setMulti={setMulti} />
       {mix?.error && <div class="notice err">{mix.error}</div>}
 
-      <section class="card hero" aria-label={sel ? 'Valor de la selección' : 'Valor del portafolio'}>
-        <div>
-          <div class="kicker">{sel ? 'Valor de la selección' : 'Valor del portafolio'}</div>
-          <div class="figure">{moneyShort(t.value, f.ccy)}</div>
-          <div class="exact">{money(t.value, f.ccy)} al {date(f.asOf)}</div>
-          {sel && (
-            <div class="exact">
-              {sel.map(labelOf).join(' + ')} · {pct(rep.total.value.isZero() ? 0 : t.value.div(rep.total.value).toNumber())} del total
-            </div>
-          )}
-          {gain && (
-            <div class="gain">
-              Ganaste <strong class={sign(gain.toNumber())}>{moneyShort(gain, f.ccy)}</strong> sobre {t.perf ? moneyShort(t.perf.startValue.plus(t.perf.netFlows), f.ccy) : '—'} que pusiste
-            </div>
-          )}
-          <div class="chips">
-            <span class={`chip ${chipTone(t.perf?.xirr)}`}>
-              XIRR <strong>{pct(t.perf?.xirr)}</strong>
-            </span>
-            <span class={`chip ${chipTone(t.perf?.twrAnnual)}`}>
-              TWR <strong>{pct(t.perf?.twrAnnual)}</strong>
-            </span>
-            <span class="chip">desde {date(t.perf?.since)}</span>
-          </div>
-        </div>
-        <div>
-          {history.length >= 2 && (
-            <LineChart
-              dates={history.map((h) => h.date)}
-              series={[
-                { id: 'value', name: sel ? 'Valor de la selección' : 'Valor del portafolio', color: 'var(--s1)', values: history.map((h) => h.value) },
-                { id: 'invested', name: 'Lo que pusiste (aportes netos)', color: 'var(--context)', values: history.map((h) => h.invested) },
-              ]}
-              area="value"
-              reference={0}
-              height={230}
-              compact
-              format={(v) => money(dec(Math.round(v)), f.ccy, 0)}
-              axisFormat={compact}
-              label={`${sel ? 'Valor de la selección' : 'Valor del portafolio'} frente a lo que has aportado`}
-            />
-          )}
-        </div>
-      </section>
-
-      <div class="tiles">
-        <div class="tile">
-          <Icon d={ICONS.xirr} />
-          <div>
-            <div class="label">Tu rentabilidad (XIRR, anual)</div>
-            <div class={`value ${sign(t.perf?.xirr)}`}>{pct(t.perf?.xirr)}</div>
-            <div class="sub">Ponderada por dinero: incluye cuándo aportaste y retiraste</div>
-          </div>
-        </div>
-        <div class="tile">
-          <Icon d={ICONS.twr} />
-          <div>
-            <div class="label">Rentabilidad de la inversión (TWR, anual)</div>
-            <div class={`value ${sign(t.perf?.twrAnnual)}`}>{pct(t.perf?.twrAnnual)}</div>
-            <div class="sub">Ponderada por tiempo · acumulada {pct(t.perf?.twr)} desde {date(t.perf?.since)}</div>
-          </div>
-        </div>
-        <div class="tile">
-          <Icon d={ICONS.gain} />
-          <div>
-            <div class="label">Ganancia en el periodo</div>
-            <div class={`value ${sign(gain?.toNumber())}`}>{gain ? moneyShort(gain, f.ccy) : '—'}</div>
-            <div class="sub">
-              Aportes netos {t.perf ? moneyShort(t.perf.netFlows, f.ccy) : '—'}
-              {withCash && ` · efectivo en cuentas ${moneyShort(rep.cash, f.ccy)}`}
-            </div>
-          </div>
-        </div>
-        <div class="tile">
-          <Icon d={ICONS.income} />
-          <div>
-            <div class="label">Dividendos e intereses</div>
-            <div class="value">{moneyShort(income, f.ccy)}</div>
-            <div class="sub">Acumulados hasta la fecha de corte, a la tasa de cada pago</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-head">
-          <h2>¿Dónde está tu dinero?</h2>
-          <span class="small muted">{sel ? 'Peso de cada clase dentro de la selección' : 'Peso de cada clase en el valor total'}</span>
-        </div>
-        <StackedBar parts={parts} label="Distribución del portafolio por clase de activo" isOn={on} onPick={choose} />
-      </div>
-
-      <div class="card-head" style="margin-top:4px">
-        <h2>Rendimiento por clase</h2>
-        <span class="small muted">TWR anual frente a su índice de retorno total · clic en una tarjeta para ver solo esa clase, Ctrl/⌘ + clic para sumar o quitar</span>
-      </div>
-      <div class="classes">
-        {rep.buckets.map((b) => (
-          <ClassCard b={b} ccy={f.ccy} state={!sel ? 'all' : on(b.bucket) ? 'on' : 'off'} choose={choose} />
-        ))}
-      </div>
-
-      <div class="card">
-        <details>
-          <summary>Ver tabla detallada por clase</summary>
-          <DetailTable rep={rep} ccy={f.ccy} sel={sel} mix={mix} labelOf={labelOf} />
-        </details>
-      </div>
+      <Customize layout={layout} set={(l) => setLayoutPref(l.length ? saveLayout(l) : '')} />
+      {layout
+        .filter((m) => m.on)
+        .map((m) => {
+          switch (m.id) {
+            case 'valor':
+              return (
+                <section class="card hero" aria-label={sel ? 'Valor de la selección' : 'Valor del portafolio'}>
+                  <div>
+                    <div class="kicker">{sel ? 'Valor de la selección' : 'Valor del portafolio'}</div>
+                    <div class="figure">{moneyShort(t.value, f.ccy)}</div>
+                    <div class="exact">{money(t.value, f.ccy)} al {date(f.asOf)}</div>
+                    {sel && (
+                      <div class="exact">
+                        {sel.map(labelOf).join(' + ')} · {pct(rep.total.value.isZero() ? 0 : t.value.div(rep.total.value).toNumber())} del total
+                      </div>
+                    )}
+                    {gain && (
+                      <div class="gain">
+                        Ganaste <strong class={sign(gain.toNumber())}>{moneyShort(gain, f.ccy)}</strong> sobre {t.perf ? moneyShort(t.perf.startValue.plus(t.perf.netFlows), f.ccy) : '—'} que pusiste
+                      </div>
+                    )}
+                    <div class="chips">
+                      <span class={`chip ${chipTone(t.perf?.xirr)}`}>
+                        XIRR <strong>{pct(t.perf?.xirr)}</strong>
+                      </span>
+                      <span class={`chip ${chipTone(t.perf?.twrAnnual)}`}>
+                        TWR <strong>{pct(t.perf?.twrAnnual)}</strong>
+                      </span>
+                      <span class="chip">desde {date(t.perf?.since)}</span>
+                    </div>
+                  </div>
+                  <div>
+                    {history.length >= 2 && (
+                      <LineChart
+                        dates={history.map((h) => h.date)}
+                        series={[
+                          { id: 'value', name: sel ? 'Valor de la selección' : 'Valor del portafolio', color: 'var(--s1)', values: history.map((h) => h.value) },
+                          { id: 'invested', name: 'Lo que pusiste (aportes netos)', color: 'var(--context)', values: history.map((h) => h.invested) },
+                        ]}
+                        area="value"
+                        reference={0}
+                        height={230}
+                        compact
+                        format={(v) => money(dec(Math.round(v)), f.ccy, 0)}
+                        axisFormat={compact}
+                        label={`${sel ? 'Valor de la selección' : 'Valor del portafolio'} frente a lo que has aportado`}
+                      />
+                    )}
+                  </div>
+                </section>
+              );
+            case 'kpis':
+              return (
+                <div class="tiles">
+                  <div class="tile">
+                    <Icon d={ICONS.xirr} />
+                    <div>
+                      <div class="label">Tu rentabilidad (XIRR, anual)</div>
+                      <div class={`value ${sign(t.perf?.xirr)}`}>{pct(t.perf?.xirr)}</div>
+                      <div class="sub">Ponderada por dinero: incluye cuándo aportaste y retiraste</div>
+                    </div>
+                  </div>
+                  <div class="tile">
+                    <Icon d={ICONS.twr} />
+                    <div>
+                      <div class="label">Rentabilidad de la inversión (TWR, anual)</div>
+                      <div class={`value ${sign(t.perf?.twrAnnual)}`}>{pct(t.perf?.twrAnnual)}</div>
+                      <div class="sub">Ponderada por tiempo · acumulada {pct(t.perf?.twr)} desde {date(t.perf?.since)}</div>
+                    </div>
+                  </div>
+                  <div class="tile">
+                    <Icon d={ICONS.gain} />
+                    <div>
+                      <div class="label">Ganancia en el periodo</div>
+                      <div class={`value ${sign(gain?.toNumber())}`}>{gain ? moneyShort(gain, f.ccy) : '—'}</div>
+                      <div class="sub">
+                        Aportes netos {t.perf ? moneyShort(t.perf.netFlows, f.ccy) : '—'}
+                        {withCash && ` · efectivo en cuentas ${moneyShort(rep.cash, f.ccy)}`}
+                      </div>
+                    </div>
+                  </div>
+                  <div class="tile">
+                    <Icon d={ICONS.income} />
+                    <div>
+                      <div class="label">Dividendos e intereses</div>
+                      <div class="value">{moneyShort(income, f.ccy)}</div>
+                      <div class="sub">Acumulados hasta la fecha de corte, a la tasa de cada pago</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            case 'mix':
+              return (
+                <div class="card">
+                  <div class="card-head">
+                    <h2>¿Dónde está tu dinero?</h2>
+                    <span class="small muted">{sel ? 'Peso de cada clase dentro de la selección' : 'Peso de cada clase en el valor total'}</span>
+                  </div>
+                  <StackedBar parts={parts} label="Distribución del portafolio por clase de activo" isOn={on} onPick={choose} />
+                </div>
+              );
+            case 'bridge':
+              return monthly && <BridgeCard m={monthly} from={windowStart(f.window, f.asOf)} ccy={f.ccy} />;
+            case 'heatmap':
+              return monthly && <HeatmapCard m={monthly} sel={sel ? sel.map(labelOf).join(' + ') : undefined} />;
+            case 'risk':
+              return monthly && <RiskCard m={monthly} from={windowStart(f.window, f.asOf)} />;
+            case 'classes':
+              return (
+                <>
+                  <div class="card-head" style="margin-top:4px">
+                    <h2>Rendimiento por clase</h2>
+                    <span class="small muted">TWR anual frente a su índice de retorno total · clic en una tarjeta para ver solo esa clase, Ctrl/⌘ + clic para sumar o quitar</span>
+                  </div>
+                  <div class="classes">
+                    {rep.buckets.map((b) => (
+                      <ClassCard b={b} ccy={f.ccy} state={!sel ? 'all' : on(b.bucket) ? 'on' : 'off'} choose={choose} />
+                    ))}
+                  </div>
+                </>
+              );
+            case 'table':
+              return (
+                <div class="card">
+                  <details>
+                    <summary>Ver tabla detallada por clase</summary>
+                    <DetailTable rep={rep} ccy={f.ccy} sel={sel} mix={mix} labelOf={labelOf} />
+                  </details>
+                </div>
+              );
+          }
+        })}
       <Glossary />
     </>
   );
@@ -382,5 +445,214 @@ function DataAlerts({ rep, data }: { rep: Report; data: Dataset }) {
         </div>
       )}
     </>
+  );
+}
+
+interface Monthly {
+  trk: Tracking;
+  /** The selected classes (and cash), which add up to `row`. */
+  rows: TrackRow[];
+  row: TrackRow;
+  assets: TrackRow[];
+  leveraged: boolean;
+}
+
+/** Show, hide and reorder the Resumen's blocks; remembered in this browser. */
+function Customize({ layout, set }: { layout: Slot[]; set: (l: Slot[]) => void }) {
+  const label = (id: string) => MODULES.find((m) => m.id === id)!.label;
+  return (
+    <details class="customize">
+      <summary>Personalizar el resumen</summary>
+      <div class="panel">
+        <p class="small muted">Elige qué bloques ver y en qué orden. Se guarda en este navegador.</p>
+        <ol>
+          {layout.map((m, i) => (
+            <li>
+              <label>
+                <input type="checkbox" checked={m.on} onChange={() => set(layout.map((x) => (x.id === m.id ? { ...x, on: !x.on } : x)))} /> {label(m.id)}
+              </label>
+              <span class="moves">
+                <button type="button" aria-label={`Subir ${label(m.id)}`} disabled={i === 0} onClick={() => set(moveSlot(layout, i, -1))}>
+                  ↑
+                </button>
+                <button type="button" aria-label={`Bajar ${label(m.id)}`} disabled={i === layout.length - 1} onClick={() => set(moveSlot(layout, i, 1))}>
+                  ↓
+                </button>
+              </span>
+            </li>
+          ))}
+        </ol>
+        <button type="button" class="link" onClick={() => set([])}>
+          Restablecer
+        </button>
+      </div>
+    </details>
+  );
+}
+
+const lastClose = (m: Monthly) => m.trk.months[m.trk.months.length - 1];
+
+function MonthlyError({ m }: { m: Monthly }) {
+  return m.trk.error ? <div class="notice warn small">Mes a mes hasta {monthLabel(lastClose(m) ?? '')}: {m.trk.error}</div> : null;
+}
+
+/** Start value, money put in, what each class earned or lost, end value; and the positions that moved it most. */
+function BridgeCard({ m, from, ccy }: { m: Monthly; from?: string; ccy: string }) {
+  const b = gainBridge(m.rows, m.trk.months, from);
+  if (!b) return null;
+  const short = (v: typeof b.flows) => moneyShort(v, ccy);
+  const signed = (v: typeof b.flows) => `${v.gte(0) ? '+' : '−'}${short(v.abs())}`;
+  const steps: BridgeStep[] = [
+    ...(b.startValue.isZero() ? [] : [{ label: `Valor al ${date(b.start)}`, kind: 'total' as const, value: b.startValue.toNumber(), color: 'var(--ink-2)', text: short(b.startValue) }]),
+    { label: 'Aportes netos', kind: 'step', value: b.flows.toNumber(), color: 'var(--context)', text: signed(b.flows), title: 'Lo que pusiste menos lo que retiraste en el periodo' },
+    ...b.parts
+      .filter((p) => !p.gain.isZero())
+      .map((p) => ({
+        label: p.id === 'cash' ? 'Efectivo e intereses' : p.label,
+        kind: 'step' as const,
+        value: p.gain.toNumber(),
+        color: p.id === 'cash' ? 'var(--context)' : classColor(p.bucket ?? ''),
+        text: signed(p.gain),
+        title: p.id === 'cash' ? 'Intereses, comisiones, impuestos y efecto cambiario del efectivo' : `Ganancia de ${p.label}: valorización, dividendos y efecto cambiario`,
+      })),
+    { label: `Valor al ${date(b.end)}`, kind: 'total', value: b.endValue.toNumber(), color: 'var(--ink-2)', text: short(b.endValue) },
+  ];
+  const gain = b.parts.reduce((s, p) => s.plus(p.gain), dec(0));
+  const topPart = [...b.parts].sort((x, y) => y.gain.comparedTo(x.gain))[0];
+  const idx = m.trk.months.map((_, i) => i).filter((i) => !from || m.trk.months[i]! > from);
+  const movers = m.assets.map((a) => ({ a, g: gainOver(a, idx) })).filter((x) => !x.g.isZero());
+  const up = [...movers].sort((x, y) => y.g.comparedTo(x.g)).slice(0, 5).filter((x) => x.g.gt(0));
+  const down = [...movers].sort((x, y) => x.g.comparedTo(y.g)).slice(0, 5).filter((x) => x.g.lt(0)).reverse();
+  const items: BarItem[] = [...up, ...down].map(({ a, g }) => ({ label: a.label, value: g.toNumber(), color: classColor(a.bucket ?? ''), text: signed(g), title: `${a.label} · ${a.sub ?? ''}` }));
+  return (
+    <div class="card">
+      <div class="card-head">
+        <h2>¿De dónde viene tu ganancia?</h2>
+        <span class="small muted">
+          Del {date(b.start)} al cierre de {monthLabel(b.end)} · ganancia = valor final − valor inicial − aportes netos
+        </span>
+      </div>
+      <MonthlyError m={m} />
+      {gain.gt(0) && topPart && topPart.gain.gt(0) && (
+        <p class="insight">
+          Hasta el cierre de {monthLabel(b.end)} ganaste <strong>{short(gain)}</strong>. <strong>{topPart.id === 'cash' ? 'El efectivo' : topPart.label}</strong> ganó <strong>{short(topPart.gain)}</strong> de ellos.
+        </p>
+      )}
+      {gain.lt(0) && <p class="insight">Hasta el cierre de {monthLabel(b.end)} perdiste <strong>{short(gain.abs())}</strong>.</p>}
+      <div class="two">
+        <div>
+          <h3>Del valor inicial al final</h3>
+          <Bridge steps={steps} label="Puente del valor inicial al final: aportes y ganancia de cada clase" />
+        </div>
+        <div>
+          <h3>Posiciones que más sumaron y restaron</h3>
+          {items.length ? <BarList items={items} label="Ganancia o pérdida de cada posición en el periodo" pad={76} /> : <p class="muted small">Sin cambios en el periodo.</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Shown instead of monthly returns and risk for a class bought on a payment plan. */
+function NotComparable() {
+  return (
+    <p class="muted small">
+      n. c.: esta selección es un inmueble pagado a plazos sobre una base pequeña. Su rentabilidad mes a mes y su riesgo no son comparables; mira la XIRR y la valorización del precio de lista en Activos.
+    </p>
+  );
+}
+
+function HeatmapCard({ m, sel }: { m: Monthly; sel?: string }) {
+  return (
+    <div class="card">
+      <div class="card-head">
+        <h2>Rentabilidad mes a mes</h2>
+        <span class="small muted">{sel ?? 'Todo el portafolio'} · TWR de cada mes (ponderada por tiempo) y del año encadenado</span>
+      </div>
+      <MonthlyError m={m} />
+      {m.leveraged ? <NotComparable /> : <ReturnsHeatmap years={returnsByYear(m.row, m.trk.months)} label={`Rentabilidad mensual por año de ${sel ?? 'todo el portafolio'}`} />}
+    </div>
+  );
+}
+
+function RiskCard({ m, from }: { m: Monthly; from?: string }) {
+  const r = riskOf(m.row, m.trk.months, from);
+  if (m.leveraged)
+    return (
+      <div class="card">
+        <h2>Riesgo y caídas</h2>
+        <NotComparable />
+      </div>
+    );
+  if (!r.months) return null;
+  const dd = r.maxDrawdown;
+  const notes = [
+    r.approx.length > 0 && `${r.approx.length} ${r.approx.length === 1 ? 'mes queda' : 'meses quedan'} por fuera de las cifras y de la curva, donde cuenta como mes sin cambio (${r.approx.map(monthLabel).join(', ')}): entró o salió mucho dinero frente al capital y su rentabilidad mensual es solo aproximada.`,
+    r.flagged.stale > 0 && `${r.flagged.stale} meses usan algún precio o valor manual de una fecha anterior (repetido, cuenta como mes sin cambio).`,
+    r.flagged.cost > 0 && `${r.flagged.cost} meses tienen algún activo al costo por falta de precio.`,
+    r.flagged.estimated > 0 && `${r.flagged.estimated} meses incluyen valores estimados (p. ej. precio de lista).`,
+  ].filter((x): x is string => !!x);
+  return (
+    <div class="card">
+      <div class="card-head">
+        <h2>Riesgo y caídas</h2>
+        <span class="small muted">
+          Del {date(r.from)} al cierre de {monthLabel(r.to ?? '')} ({r.months} meses; el mes en curso no se incluye) · sobre la rentabilidad ponderada por tiempo (TWR)
+        </span>
+      </div>
+      <MonthlyError m={m} />
+      <div class="stats">
+        <div class="stat">
+          <span class="label">Volatilidad anual</span>
+          <strong>{pct(r.volatility)}</strong>
+          <span class="sub">Cuánto se mueve mes a mes, llevado a un año</span>
+        </div>
+        <div class="stat">
+          <span class="label">Máxima caída</span>
+          <strong class={dd ? 'neg' : ''}>{dd ? pct(dd.depth) : '—'}</strong>
+          <span class="sub">{dd ? `${monthLabel(dd.peak)} → ${monthLabel(dd.trough)} · ${dd.recovered ? `recuperada en ${monthLabel(dd.recovered)}` : 'aún sin recuperar'}` : 'Nunca bajó de un máximo'}</span>
+        </div>
+        <div class="stat">
+          <span class="label">Al cierre de {monthLabel(r.to ?? '')}, frente al máximo</span>
+          <strong class={r.current < 0 ? 'neg' : 'pos'}>{r.current < 0 ? pct(r.current) : 'En máximo'}</strong>
+          <span class="sub">Caída desde el valor más alto</span>
+        </div>
+        <div class="stat">
+          <span class="label">Mejor y peor mes</span>
+          <strong>
+            <span class="pos">{pct(r.best?.r)}</span> / <span class="neg">{pct(r.worst?.r)}</span>
+          </strong>
+          <span class="sub">
+            {r.best ? monthLabel(r.best.date) : ''} · {r.worst ? monthLabel(r.worst.date) : ''}
+          </span>
+        </div>
+        <div class="stat">
+          <span class="label">Meses con ganancia</span>
+          <strong>{pct(r.positive, 0)}</strong>
+          <span class="sub">
+            {Math.round((r.positive ?? 0) * r.months)} de {r.months}
+          </span>
+        </div>
+      </div>
+      <h3 style="margin-top:14px">Caída desde el máximo anterior</h3>
+      <LineChart
+        dates={r.underwater.map((u) => u.date)}
+        series={[{ id: 'dd', name: 'Caída desde el máximo', color: 'var(--dv-neg)', values: r.underwater.map((u) => u.drawdown) }]}
+        area="dd"
+        reference={0}
+        height={170}
+        compact
+        format={(v) => pct(v)}
+        axisFormat={(v) => pct(v, 0)}
+        label="Caída del portafolio desde su máximo anterior, mes a mes"
+      />
+      {notes.length > 0 && (
+        <ul class="small muted notes">
+          {notes.map((n) => (
+            <li>{n}</li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

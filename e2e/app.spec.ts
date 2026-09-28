@@ -37,7 +37,7 @@ test('demo portfolio: summary, positions, comparison, persistence', async ({ pag
   if (shots) await page.screenshot({ path: `${shots}/activos-${info.project.name}.png`, fullPage: true });
 
   await page.getByRole('link', { name: 'Comparación' }).click();
-  await expect(page.locator('.card .chart svg path.series')).toHaveCount(2);
+  await expect(page.locator('.card').filter({ hasText: 'Crecimiento de 100' }).locator('.chart svg path.series')).toHaveCount(2);
   if (shots) await page.screenshot({ path: `${shots}/comparacion-${info.project.name}.png`, fullPage: true });
 
   await page.reload();
@@ -181,6 +181,41 @@ test('price tracking: set a target and see the progress; theme switch', async ({
 
 const amount = (s: string | null) => Number((s ?? '').match(/\$ ([\d.]+)/)![1]!.replace(/\./g, ''));
 
+test('summary analysis blocks: gain bridge, monthly heatmap and risk; hide and reorder blocks', async ({ page }, info) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await loadDemo(page);
+  await expect(page.getByRole('heading', { name: '¿De dónde viene tu ganancia?' })).toBeVisible();
+  await expect(page.getByRole('list', { name: /Puente del valor inicial al final/ }).getByRole('listitem')).not.toHaveCount(0);
+  const heat = page.getByRole('table', { name: /Rentabilidad mensual por año/ });
+  await expect(heat.getByRole('rowheader', { name: '2025' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Riesgo y caídas' })).toBeVisible();
+  await expect(page.getByText('Máxima caída', { exact: true })).toBeVisible();
+  if (shots) await page.screenshot({ path: `${shots}/resumen-analisis-${info.project.name}.png`, fullPage: true });
+
+  await page.getByText('Personalizar el resumen').click();
+  await page.getByRole('checkbox', { name: 'Rentabilidad mes a mes' }).uncheck();
+  await expect(heat).toHaveCount(0);
+  // Two places up: past the hidden heatmap and the gain bridge.
+  await page.getByRole('button', { name: 'Subir Riesgo y caídas' }).click();
+  await page.getByRole('button', { name: 'Subir Riesgo y caídas' }).click();
+  const order = async () => {
+    const h = await page.locator('main h2').allInnerTexts();
+    return h.indexOf('Riesgo y caídas') < h.indexOf('¿De dónde viene tu ganancia?');
+  };
+  expect(await order()).toBe(true);
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Riesgo y caídas' })).toBeVisible();
+  await expect(heat).toHaveCount(0);
+  expect(await order()).toBe(true);
+
+  await page.getByRole('link', { name: 'Comparación' }).click();
+  const risk = page.locator('.card').filter({ has: page.getByRole('heading', { name: /Riesgo: cuánto se mueve/ }) });
+  await expect(risk.getByRole('row')).toHaveCount(3);
+  await expect(risk.locator('.chart svg path.series')).toHaveCount(2);
+  expect(errors).toEqual([]);
+});
+
 test('summary is modular: click a class, Ctrl-click to leave one out, the choice is remembered', async ({ page }, info) => {
   await loadDemo(page);
   const card = (name: string) => page.locator('.class-card').filter({ has: page.getByRole('link', { name, exact: true }) });
@@ -249,5 +284,14 @@ test('indicators: composition filters the table; edit the thesis and fundamental
   await page.getByRole('link', { name: 'Precios' }).click();
   await page.locator('table.prices tr.stock').filter({ hasText: 'Acme Industries' }).getByRole('button', { name: /Acme/ }).click();
   await page.getByRole('link', { name: /Tesis, precio optimista y fundamentales de Acme/ }).click();
-  await expect(page.getByRole('form', { name: 'Tesis de Acme Industries' })).toBeVisible();
+  const acme = page.getByRole('form', { name: 'Tesis de Acme Industries' });
+  await expect(acme).toBeVisible();
+
+  // With two stocks that have a target, each one's weight is plotted against its potential.
+  await acme.getByLabel(/Precio objetivo/).fill('50');
+  await acme.getByRole('button', { name: 'Guardar' }).click();
+  const scatter = page.locator('.card').filter({ has: page.getByRole('heading', { name: 'Peso frente a potencial' }) });
+  await expect(scatter.getByRole('img', { name: 'Peso de cada acción frente a su potencial al objetivo' })).toBeVisible();
+  await expect(scatter.locator('g.pt')).toHaveCount(2);
+  await expect(scatter.locator('details td', { hasText: 'SMPL' })).toBeAttached();
 });

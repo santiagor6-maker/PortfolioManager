@@ -33,6 +33,12 @@ export interface Cell {
   gain: Decimal;
   /** Modified Dietz return for the month; null when the capital base is not positive. */
   r: number | null;
+  /**
+   * The month's flows are large next to its capital (the weighted base is under half the larger of the start and
+   * end values, e.g. a sale early in the month or a big deposit into a small account): Modified Dietz can then be
+   * far from the real result, so risk statistics leave the month out.
+   */
+  approx?: true;
   flag?: CellFlag;
 }
 
@@ -85,7 +91,8 @@ function cells(a: Acc, n: number): Cell[] {
     const gain = v1.minus(v0).minus(f);
     // Same convention as the engine's TWR: when the row starts inside the month, flows get full weight.
     const base = v0.plus(v0.isZero() ? f : a.wflow[m]!);
-    out.push({ value: v1, flow: f, wflow: a.wflow[m]!, gain, r: base.gt(0) ? gain.div(base).toNumber() : null, ...(a.flags[m] ? { flag: a.flags[m] } : {}) });
+    const approx = v0.gt(0) && base.gt(0) && base.lt(Decimal.max(v0, v1).div(2));
+    out.push({ value: v1, flow: f, wflow: a.wflow[m]!, gain, r: base.gt(0) ? gain.div(base).toNumber() : null, ...(approx ? { approx: true as const } : {}), ...(a.flags[m] ? { flag: a.flags[m] } : {}) });
   }
   return out;
 }
@@ -212,6 +219,24 @@ export function tracking(ctx: Context, ccy: Ccy, to: IsoDate): Tracking {
     total: { id: 'total', kind: 'total', label: 'TOTAL', cells: cells(total, n), flows: total.flows },
     ...(error ? { error } : {}),
   };
+}
+
+/**
+ * One row that adds up several rows of the same tracking (e.g. the classes the user picked, with or without cash).
+ * Values and flows are summed month by month and the returns recomputed, so the classes plus cash give back the total.
+ */
+export function combineRows(rows: readonly TrackRow[], id: string, label: string): TrackRow {
+  const n = rows[0]?.cells.length ?? 0;
+  const accs = rows.map((r): Acc => ({
+    value: r.cells.map((c) => c.value),
+    flow: r.cells.map((c) => c.flow),
+    wflow: r.cells.map((c) => c.wflow),
+    flags: r.cells.map((c) => c.flag),
+    flows: r.flows,
+  }));
+  const acc = combine(n, accs);
+  for (let m = 0; m < n; m++) acc.flags[m] = accs.map((a) => a.flags[m]).filter((f): f is CellFlag => !!f).sort((x, y) => RANK[y] - RANK[x])[0];
+  return { id, kind: 'subtotal', label, cells: cells(acc, n), flows: acc.flows };
 }
 
 /** Money-weighted return (annual) from the row's first flow to month `m`, valuing the row at that month-end. */

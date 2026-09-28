@@ -78,7 +78,8 @@ export interface ScopeResult {
   error?: string;
 }
 
-function windowStart(w: Window, asOf: IsoDate): IsoDate | undefined {
+/** The date the period starts after (a month-end), or undefined for "since the beginning". */
+export function windowStart(w: Window, asOf: IsoDate): IsoDate | undefined {
   const [y, m] = asOf.split('-').map(Number) as [number, number];
   if (w.startsWith('from:')) return w.slice(5);
   const back = (months: number) => {

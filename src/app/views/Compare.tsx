@@ -3,7 +3,9 @@ import { analyzeScope, bucketLabel } from '../analysis.ts';
 import { contextOf } from '../context.ts';
 import { Filters, useFilters } from '../components/Filters.tsx';
 import { LineChart } from '../components/LineChart.tsx';
-import { date, pct, ratio } from '../format.ts';
+import { date, monthLabel, pct, ratio } from '../format.ts';
+import { levelSeriesRisk } from '../insights.ts';
+import type { LevelRisk } from '../insights.ts';
 import { useDataset } from '../store.ts';
 
 const COLORS = ['var(--s1)', 'var(--s2)', 'var(--s3)', 'var(--s4)'];
@@ -28,6 +30,9 @@ export function Compare() {
       .map((b, i) => ({ id: b.symbol, name: b.name, color: COLORS[i + 1]!, values: res.growth.map((g) => g.benches[b.symbol] ?? null) })),
   ];
   const main = res.benches.find((b) => b.annual !== undefined);
+  const risks = series.map((s) => ({ s, r: levelSeriesRisk(dates, s.values) }));
+  // Property bought on a payment plan: its TWR is on a small leveraged base, not comparable (as in Resumen).
+  const leveraged = scope !== 'total' && data.ledger.some((t) => t.type === 'COMMITMENT' && t.asset !== undefined && ctx.book.assets.get(t.asset)?.bucket === scope);
   return (
     <>
       <Filters state={f} set={set}>
@@ -85,6 +90,64 @@ export function Compare() {
         </p>
         <LineChart dates={dates} series={series} format={(v) => new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 }).format(v)} reference={100} area="portfolio" label="Crecimiento de 100 del portafolio frente a los índices" />
       </div>
+      {dates.length > 2 && leveraged && (
+        <div class="card">
+          <h2>Riesgo: cuánto se mueve y cuánto ha caído</h2>
+          <p class="muted small">n. c.: un inmueble pagado a plazos sobre una base pequeña no tiene una rentabilidad ponderada por tiempo comparable, así que su volatilidad y sus caídas tampoco lo son.</p>
+        </div>
+      )}
+      {dates.length > 2 && !leveraged && (
+        <div class="card">
+          <div class="card-head">
+            <h2>Riesgo: cuánto se mueve y cuánto ha caído</h2>
+            <span class="small muted">Mismo periodo y misma rentabilidad ponderada por tiempo que la gráfica de arriba</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th></th>
+                  <th class="n">Volatilidad anual</th>
+                  <th class="n">Máxima caída</th>
+                  <th>Cuándo</th>
+                  <th class="n">Hoy frente al máximo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {risks.map(({ s, r }) => (
+                  <tr>
+                    <td>
+                      <span class="key-dot" style={`background:${s.color}`} />
+                      {s.name}
+                    </td>
+                    <td class="n">{pct(r.volatility)}</td>
+                    <td class="n neg">{r.maxDrawdown ? pct(r.maxDrawdown.depth) : '—'}</td>
+                    <td class="small">{when(r)}</td>
+                    <td class={`n ${r.current < 0 ? 'neg' : ''}`}>{r.current < 0 ? pct(r.current) : 'en máximo'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <h3 style="margin-top:14px">Caída desde el máximo anterior</h3>
+          <LineChart
+            dates={dates}
+            series={risks.map(({ s, r }) => {
+              const by = new Map(r.underwater.map((u) => [u.date, u.drawdown]));
+              return { ...s, values: dates.map((d) => by.get(d) ?? null) };
+            })}
+            area="portfolio"
+            reference={0}
+            height={200}
+            format={(v) => pct(v)}
+            axisFormat={(v) => pct(v, 0)}
+            label="Caída del portafolio y de los índices desde su máximo anterior"
+          />
+          <p class="small muted" style="margin-top:8px">
+            Volatilidad: desviación estándar de las rentabilidades mensuales, llevada a un año (× √12). Máxima caída: la mayor baja desde un máximo hasta el punto más bajo siguiente.
+          </p>
+        </div>
+      )}
       <div class="card">
         <div class="table-wrap">
           <table>
@@ -118,4 +181,10 @@ export function Compare() {
       </div>
     </>
   );
+}
+
+function when(r: LevelRisk): string {
+  const d = r.maxDrawdown;
+  if (!d) return 'nunca bajó de un máximo';
+  return `${monthLabel(d.peak)} → ${monthLabel(d.trough)}${d.recovered ? `, recuperada en ${monthLabel(d.recovered)}` : ', sin recuperar'}`;
 }

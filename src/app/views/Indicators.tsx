@@ -4,6 +4,7 @@ import type { Asset, Fundamentals, MoatRating } from '../../domain/types.ts';
 import { bucketLabel } from '../analysis.ts';
 import { contextOf } from '../context.ts';
 import { Filters, useFilters } from '../components/Filters.tsx';
+import { Scatter } from '../components/Scatter.tsx';
 import { date, money, moneyShort, parseNumber, pct, price } from '../format.ts';
 import { breakdown, concentration, indicatorRows, weightedUpside } from '../indicators.ts';
 import type { IndicatorRow, Slice } from '../indicators.ts';
@@ -467,6 +468,8 @@ export function Indicators() {
         </div>
       </div>
 
+      <WeightVsUpside rows={rows} ccy={f.ccy} />
+
       <div class="card">
         <div class="card-head">
           <h2>Indicadores por acción</h2>
@@ -611,5 +614,45 @@ export function Indicators() {
         </p>
       </div>
     </>
+  );
+}
+
+const signedPct = (x: number, digits = 0) => `${x > 0 ? '+' : ''}${pct(x, digits)}`;
+
+/** Each stock with a target: its weight against its potential to the base target, to spot big positions with little upside. */
+function WeightVsUpside({ rows, ccy }: { rows: IndicatorRow[]; ccy: string }) {
+  const withTarget = rows.filter((r) => r.upside !== undefined);
+  if (withTarget.length < 2) return null;
+  const named = new Set([...withTarget].sort((a, b) => b.weight - a.weight).slice(0, 6).map((r) => r.asset));
+  const low = withTarget.filter((r) => r.upside! < 0.1);
+  const lowWeight = low.reduce((s, r) => s + r.weight, 0);
+  return (
+    <div class="card">
+      <div class="card-head">
+        <h2>Peso frente a potencial</h2>
+        <span class="small muted">{withTarget.length} acciones con objetivo y precio · arriba a la izquierda: mucho peso y poco potencial</span>
+      </div>
+      {low.length > 0 && (
+        <p class="insight">
+          El <strong>{pct(lowWeight, 0)}</strong> de este portafolio está en {low.length === 1 ? 'una acción' : `${low.length} acciones`} con menos de 10 % de potencial a su objetivo o que ya lo superaron: {low.map((r) => r.symbol ?? r.name).join(', ')}.
+        </p>
+      )}
+      <Scatter
+        points={withTarget.map((r) => ({
+          id: r.asset,
+          label: r.symbol ?? r.name,
+          x: r.upside!,
+          y: r.weight,
+          named: named.has(r.asset),
+          lines: [`${r.name}`, `Peso ${pct(r.weight)} · ${moneyShort(r.value, ccy)}`, `Potencial al objetivo ${signedPct(r.upside!, 1)}`, ...(r.strategy ? [`Estrategia: ${r.strategy}`] : [])],
+        }))}
+        xLabel="Potencial al objetivo"
+        yLabel="Peso en el portafolio"
+        xFormat={(v) => signedPct(v)}
+        yFormat={(v) => pct(v, 0)}
+        xRef={0}
+        label="Peso de cada acción frente a su potencial al objetivo"
+      />
+    </div>
   );
 }
