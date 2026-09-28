@@ -19,7 +19,7 @@ Run what the request needs. By default that is all of these, in this order, stop
 1. `npm run typecheck`
 2. `npm test`
 3. `npm run build`, which writes `dist/index.html`, a single file that opens from disk.
-4. `npm run test:e2e`. It runs on desktop and mobile; with `SHOTS_DIR=<folder>`, it saves its own screenshots there.
+4. `npm run test:e2e`. It runs on desktop and mobile. With `SHOTS_DIR=<folder>`, it also saves its screenshots there; look at them when styles changed.
 
 ## Looking at screens
 
@@ -28,15 +28,16 @@ Write a short Playwright script (`.mjs`) in the working folder. Import from `<re
 - Open `file://<repo>/dist/index.html`. Screens are hash routes:
   - `#/` (Resumen)
   - `#/seguimiento`
-  - `#/cierre?mes=AAAA-MM-DD`
+  - `#/cierre` (opens the latest pending month), or `#/cierre?mes=AAAA-MM-DD` with a month-end date
   - `#/precios`
   - `#/indicadores`
   - `#/activos`
   - `#/comparacion`
   - `#/movimientos`
   - `#/datos`
-- Start from an empty database, because `file://` pages share storage: delete the IndexedDB database `investment-tracker` and clear `localStorage`, then reload.
-- **Demo data:** click the "Cargar demostración" button.
+- Use one page for the whole run and change its size with `page.setViewportSize`. A new browser context may start with an empty database; a screen showing "Empezar" means no data is loaded.
+- Start from an empty database: delete the IndexedDB database `investment-tracker` and clear `localStorage`, then reload.
+- **Demo data:** click the first "Cargar demostración" button, then wait until `.hero .kicker` reads "Valor del portafolio".
 - **A user backup:** go to `#/datos`, accept dialogs (`page.on('dialog', d => d.accept())`), and set the backup on the first `input[type=file]` ("Respaldo completo"). Wait for `getByRole('status')` and record its text.
 - Collect `pageerror` events and console errors.
 - Check each screen at 1280×900, and at 390×844 when layout matters. Record the key figures and messages as text, and take a full-page screenshot.

@@ -12,6 +12,7 @@ You cannot talk to the user. Anything that needs their decision goes in your rep
 
 - **Never fabricate market data.** Every row has a `source` (provider name and URL) and the date it applies to. No interpolation, no estimate, no carrying an older value forward, no figure taken from memory.
 - A search-result snippet is not a source. Read the value on the provider's own page or API response.
+- **Right instrument.** The asset's `name` in the backup must match the issuer or fund on the source page. If it doesn't, or its stored prices have `source: synthetic` (demo data), report it under "Sin dato": a ticker can belong to another company on another exchange.
 - **Never bypass bot protection, logins or paywalls.** No headless browsers to render a blocked site, no mirrors, cached copies or alternate proxies. If a host is blocked (a 403 from the environment proxy, a challenge page), note it and try the next source on the list.
 - The backup and every file you write are personal data. Read the backup where you are told; write only in the working folder you were given, never inside the repository.
 - Work from the repository root, where `node scripts/checks.ts` runs.
@@ -19,7 +20,11 @@ You cannot talk to the user. Anything that needs their decision goes in your rep
 ## What to fetch
 
 **Exchange rates** → `fx.csv` with header `ccy,date,per_usd,source`.
-- COP: the official TRM in force on the month end. Source: datos.gov.co dataset `32sa-8pi3` (Superintendencia Financiera), e.g. `https://www.datos.gov.co/resource/32sa-8pi3.json?$where=vigenciadesde<='AAAA-MM-DD'&$order=vigenciadesde DESC&$limit=1`. `date` is its `vigenciadesde`; `per_usd` is `valor`. Banco de la República is the fallback.
+- COP: the official TRM in force on the month end, from datos.gov.co dataset `32sa-8pi3` (Superintendencia Financiera). Banco de la República is the fallback.
+  - Query parameters must be URL-encoded:
+    `curl -sG https://www.datos.gov.co/resource/32sa-8pi3.json --data-urlencode "\$where=vigenciadesde<='AAAA-MM-DDT00:00:00'" --data-urlencode '$order=vigenciadesde DESC' --data-urlencode '$limit=1'`
+  - `date` is its `vigenciadesde`, which may be a Saturday before the month end. The app takes the latest rate on or before each date, so that row covers the month end.
+  - `per_usd` is `valor`.
 - Other currencies as pairs in market convention, USD per unit: `ccy` = `EUR/USD`, `per_usd` = e.g. `1.0843`. The app inverts them on import. Prefer a central-bank reference rate (ECB, Bank of Canada) and name it.
 
 **Prices** → `prices.csv` with header `symbol,date,close,ccy,source`.
@@ -33,10 +38,12 @@ You cannot talk to the user. Anything that needs their decision goes in your rep
 
 ## Validate
 
+Write a file only when it has at least one row.
+
 1. `node scripts/checks.ts fx <backup.json> <folder>/fx.csv`
 2. `node scripts/checks.ts prices <backup.json> <folder>/prices.csv`
 
-There must be no errors. Every `JUMP` warning (a possible split, typo, wrong currency or wrong series) must be fixed or explained with evidence in your report. `REPLACES` means a stored value would be overwritten: explain why yours is right, or drop the row.
+There must be no errors. Every `JUMP` warning (a possible split, typo, wrong currency or wrong series) must be fixed or explained with evidence in your report. `REPLACES` means a stored value would be overwritten: explain why yours is right, or drop the row. A `JUMP` against a value months older is expected; say so.
 
 ## Report
 
