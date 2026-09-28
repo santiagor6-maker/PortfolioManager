@@ -8,8 +8,12 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
   - Skills, subagentes y hooks.
   - Visualizaciones de análisis: Resumen modular, puente de ganancia, mapa mensual, riesgo, peso vs potencial.
   - Pestaña Dividendos (inspirada en getquin).
-- Fase 4 (precios y TRM automáticos): sin empezar.
-- Fase 5 (Netlify y Supabase): pendiente de aprobación.
+- Plan acordado:
+  1. Netlify.
+  2. Supabase con datos cifrados en el navegador.
+  3. Precios automáticos (Twelve Data, TRM y cripto).
+  4. Fundamentales mensuales desde SEC EDGAR al abrir la app.
+- Deploy y proyecto de Supabase: esperan la confirmación del usuario.
 - Pendiente del usuario:
   - valores manuales de jul–sep 2026; el cierre de julio 2026 solo espera esto;
   - certificado de dividendos COP;
@@ -19,6 +23,15 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
 - Mejora anotada: el aviso de TRM del Cierre nombra el primer mes pendiente, no el mes que se está cerrando.
 
 ## Registro
+
+**2026-09-28 — Plan de la siguiente etapa** (sin commit de código)
+- Orden:
+  1. publicar en Netlify;
+  2. sincronización con Supabase, cifrada en el navegador con una frase del usuario (AES-GCM);
+  3. botón de precios con Twelve Data, TRM oficial y CoinGecko;
+  4. fundamentales mensuales desde SEC EDGAR.
+- Fiscal.ai Pro (vía eToro) es solo la terminal; su API y MCP se pagan aparte. Se usa SEC EDGAR, que es gratis y oficial, con una función de Netlify porque `data.sec.gov` no permite CORS. Se actualiza al abrir la app en un mes nuevo, en un campo aparte que no pisa los datos manuales.
+- Descartados: reporte de renta, costos, Sharpe y rayos X de ETFs.
 
 **2026-09-28 — Estilo getquin** (1e7e0f7)
 - Con acceso a app.getquin.com se extrajeron sus tokens reales: gris #f9f9f9, tarjetas blancas con borde #f2f2f2, radio 4px, sin sombras, azul #253bbd, verde #5bc87c y rojo #ef5343, más su modo oscuro.
