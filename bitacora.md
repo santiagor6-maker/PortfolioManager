@@ -58,7 +58,7 @@ Pruebas: 122 unitarias y 16 e2e, todas en verde.
   - `statement-reader` dejó como pregunta una línea ambigua del extracto y detectó que un valor de mitad de mes taparía el de cierre.
 
   Las instrucciones quedaron ajustadas (e0bf832, 0f0c790).
-- Se clonó el repositorio PortfolioManager en la sesión, solo para tenerlo disponible.
+- El repositorio `Prueba1` pasó a llamarse `PortfolioManager` en GitHub. Es el mismo repositorio, con esta rama y su historial. El remoto local ya apunta al nombre nuevo.
 - Se creó esta bitácora.
 
 ### 2026-09-27 — Seguimiento, Precios, Indicadores y automatización
