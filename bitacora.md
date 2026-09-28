@@ -13,7 +13,8 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
   2. Supabase con datos cifrados en el navegador.
   3. Precios automáticos (Twelve Data, TRM y cripto).
   4. Fundamentales mensuales desde SEC EDGAR al abrir la app.
-- Netlify `portfoliomanager-sr` conectado a GitHub. Publica la rama `claude/stoic-clarke-1c1mln` cuando el usuario la configure como rama de producción, y cada push se publica. Proyecto de Supabase: pendiente.
+- Netlify `portfoliomanager-sr` publica esta rama en cada push.
+- Supabase `portfoliomanager` (us-east-1, gratis) sincroniza una copia cifrada. Falta que el usuario agregue el código a las plantillas de correo y haga la primera prueba real.
 - Pendiente del usuario:
   - valores manuales de jul–sep 2026; el cierre de julio 2026 solo espera esto;
   - certificado de dividendos COP;
@@ -23,6 +24,11 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
 - Mejora anotada: el aviso de TRM del Cierre nombra el primer mes pendiente, no el mes que se está cerrando.
 
 ## Registro
+
+**2026-09-28 — Sincronización cifrada con Supabase**
+- Esquema en `supabase/migrations/`: tabla `datasets` que solo guarda texto cifrado y versión, con RLS; lista de correos permitidos en el esquema `private`; guardado optimista por versión. Probado contra el proyecto real con usuarios sintéticos, ya borrados; el advisor de seguridad quedó sin advertencias.
+- App (`src/data/crypto.ts`, `src/app/sync.ts`): comprime (gzip) y cifra en el navegador (PBKDF2 + AES-GCM). Entra con código por correo. Nunca fusiona: en conflicto se elige una copia y la otra se guarda y se descarga. Estado visible en el encabezado.
+- `finance-reviewer`, dos pasadas: corregidas una edición perdida durante una descarga, la nube que retrocede, la marca de cambios sin subir que no sobrevivía una recarga y la clave olvidada al abrir sin conexión. Todo con e2e contra un Supabase simulado.
 
 **2026-09-28 — Netlify desde GitHub**
 - El 404 venía de que Netlify publicaba `main`, que solo tiene `CLAUDE.md`. El usuario eligió publicar la rama de trabajo, sin pull request.

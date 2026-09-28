@@ -12,6 +12,8 @@ import { Indicators } from './views/Indicators.tsx';
 import { Dividends } from './views/Dividends.tsx';
 import { Compare } from './views/Compare.tsx';
 import { DataView } from './views/Data.tsx';
+import { initSync, syncConfigured, useSync } from './sync.ts';
+import { STATUS_LABEL } from './views/SyncCard.tsx';
 
 const ROUTES = [
   { id: 'resumen', label: 'Resumen', view: Summary },
@@ -60,6 +62,17 @@ function ThemeSwitch() {
   );
 }
 
+/** Header dot for cloud sync, linking to its card in Datos. Only on builds with sync configured. */
+function SyncBadge() {
+  const s = useSync();
+  return (
+    <a href="#/datos" class="sync-badge" title={s.message ?? STATUS_LABEL[s.status]} aria-label={`Sincronización: ${STATUS_LABEL[s.status]}`}>
+      <span class={`sync-dot ${s.status}`} aria-hidden="true" />
+      <span class="sync-label">{STATUS_LABEL[s.status]}</span>
+    </a>
+  );
+}
+
 function useRoute(): string {
   const get = () => location.hash.replace(/^#\/?/, '').split('?')[0] || '';
   const [r, setR] = useState(get);
@@ -92,6 +105,7 @@ function App() {
               </a>
             ))}
           </nav>
+          {syncConfigured && <SyncBadge />}
           <ThemeSwitch />
         </div>
       </header>
@@ -110,3 +124,4 @@ function App() {
 }
 
 render(<App />, document.getElementById('app')!);
+void initSync();

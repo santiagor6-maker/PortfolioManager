@@ -366,6 +366,23 @@ a.btn { display: inline-block; background: var(--btn); color: var(--btn-ink); te
 .theme-switch:hover { background: var(--axis); }
 @media (prefers-reduced-motion: reduce) { .theme-switch .knob { transition: none; } }
 
+/* Cloud sync: header dot and the card in Datos */
+.sync-badge { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); text-decoration: none; padding: 4px 6px; border-radius: var(--radius); }
+.sync-badge:hover { background: var(--page); }
+.sync-badge + .theme-switch { margin-left: 8px; }
+.sync-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--axis); }
+.sync-dot.synced { background: var(--good); }
+.sync-dot.pending, .sync-dot.syncing, .sync-dot.offline { background: var(--warn-ink); }
+.sync-dot.conflict, .sync-dot.error { background: var(--bad); }
+.sync-card form { margin-top: 8px; }
+.sync-card .actions { align-items: flex-end; }
+.sync-card .sync-state { align-items: center; margin-top: 8px; font-size: 13px; }
+.sync-card .notice p { margin: 0 0 8px; }
+label.check { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; margin: 4px 0 12px; }
+label.check input { margin-top: 2px; }
+.small.bad { color: var(--bad); }
+@media (max-width: 1439px) { .sync-badge .sync-label { display: none; } }
+
 /* Price tracking (the bitácora view) */
 table.prices { font-size: 13.5px; }
 table.prices th, table.prices td { padding: 7px 8px; vertical-align: middle; }

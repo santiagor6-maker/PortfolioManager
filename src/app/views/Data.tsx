@@ -5,20 +5,12 @@ import type { Dataset } from '../../data/json.ts';
 import { holdingsAt } from '../../domain/holdings.ts';
 import { bucketLabel } from '../analysis.ts';
 import { contextOf, coverage } from '../context.ts';
+import { download } from '../download.ts';
 import { date, today } from '../format.ts';
 import { demoDataset, importBook, importFx, importLedger, importPrices, upsertAccount } from '../mutations.ts';
 import { getDataset, setDataset, useDataset } from '../store.ts';
-
-function download(name: string, text: string, type: string) {
-  const url = URL.createObjectURL(new Blob([text], { type }));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = name;
-  document.body.append(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
+import { syncConfigured } from '../sync.ts';
+import { SyncCard } from './SyncCard.tsx';
 
 function FileButton({ label, accept, onText }: { label: string; accept: string; onText: (text: string, name: string) => Promise<void> | void }) {
   return (
@@ -70,6 +62,7 @@ export function DataView() {
   return (
     <>
       {msg && <div class={`notice ${msg.kind}`} role="status">{msg.text}</div>}
+      {syncConfigured && <SyncCard />}
       {empty && (
         <div class="card">
           <h2>Empezar</h2>
@@ -136,7 +129,11 @@ export function DataView() {
             Descargar movimientos (.csv)
           </button>
         </div>
-        <p class="small muted" style="margin-top:8px">Descarga un respaldo cada cierre de mes: los datos viven solo en este navegador y se pierden si borras sus datos.</p>
+        <p class="small muted" style="margin-top:8px">
+          {syncConfigured
+            ? 'Descarga un respaldo cada cierre de mes: la copia en la nube depende de tu frase, y el archivo sirve aunque la olvides.'
+            : 'Descarga un respaldo cada cierre de mes: los datos viven solo en este navegador y se pierden si borras sus datos.'}
+        </p>
       </div>
 
       <div class="card">
