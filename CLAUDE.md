@@ -41,7 +41,7 @@ Stack: TypeScript, Vitest, decimal.js. Static web app (Vite) that runs locally a
   - `app-verifier`: typecheck, tests, build, e2e and screenshots.
 
   Re-run `scripts/checks.ts` on any file an agent hands back. If an agent type is not available yet, run a general-purpose agent with that file's instructions.
-- **Always log progress in `bitacora.md`.** Before ending a turn that advanced the project (code, decisions, deliverables to the user), add one dated line at the top of "Registro": what was done, with its commit if any. Keep "Estado" to a few lines that say where things stand. Keep the file short: it is a trace for Claude, not a report. Write it in Spanish. Never put personal figures in it (balances, values, returns, positions).
+- **Always log progress in `bitacora.md`.** Before ending a turn that advanced the project (code, decisions, deliverables to the user), add an entry at the top of "Registro". The entry is a bold dated title with its commits, followed by 2–4 short bullets saying what was done or decided. Keep "Estado" to a few lines that say where things stand. Keep the file short: it is a trace for Claude, not a report. Write it in Spanish. Never put personal figures in it (balances, values, returns, positions).
 - Hooks: `.githooks/pre-commit` (`scripts/guard.ts`, enabled by `npm install`) blocks personal data, secrets, and code that fails the typecheck or unit tests. Never bypass it. `.claude/settings.json` enables it at session start, blocks `--no-verify`, and runs the typecheck and tests before a turn ends with code changes.
 
 ## Domain rules

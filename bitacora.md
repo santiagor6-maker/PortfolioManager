@@ -1,30 +1,81 @@
 # Bitácora
 
-Traza de lo hecho, la entrada más reciente primero. Una línea por avance, con su commit. Sin cifras personales.
+Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos pocos bullets y su commit. No incluye cifras personales.
 
 ## Estado
-- Fases 0–3 hechas: auditoría, registro de movimientos, motor de cálculo y app local. Skills, subagentes y hooks listos.
-- Fase 4 (precios y TRM automáticos) sin empezar. Fase 5 (Netlify y Supabase) espera aprobación.
+- Terminado:
+  - Fases 0–3: auditoría, registro de movimientos, motor de cálculo y app local.
+  - Skills, subagentes y hooks.
+- Fase 4 (precios y TRM automáticos): sin empezar.
+- Fase 5 (Netlify y Supabase): pendiente de aprobación.
 - Pendiente del usuario:
-  - valores manuales de jul–sep 2026 (el cierre de julio 2026 espera solo esto);
+  - valores manuales de jul–sep 2026; el cierre de julio 2026 solo espera esto;
   - certificado de dividendos COP;
   - extractos de eToro;
   - verificar la compra de XRP de 2020.
-- Mejora anotada: el aviso de TRM del Cierre nombra el primer mes pendiente y no el mes que se cierra.
+- Mejora anotada: el aviso de TRM del Cierre nombra el primer mes pendiente, no el mes que se está cerrando.
 
 ## Registro
-- 2026-09-28 — Regla de bitácora en CLAUDE.md; bitácora simplificada.
-- 2026-09-28 — Repo renombrado de Prueba1 a PortfolioManager; remoto actualizado (47be66b).
-- 2026-09-28 — Bitácora creada (5f1f735).
-- 2026-09-28 — Nuevos subagentes `market-data`, `statement-reader`, `moat-researcher` y `app-verifier`, probados con datos sintéticos (8820b6a, e0bf832, 0f0c790).
-- 2026-09-28 — `/month-close 2026-07`: mercado completo; faltan 4 valores manuales del usuario.
-- 2026-09-27 — `scripts/checks.ts`, skills, `finance-reviewer` y hooks; 12 hallazgos del revisor corregidos (946cff2, 68b9cab).
-- 2026-09-27 — Foso económico por proveedor (4d942d6).
-- 2026-09-27 — Vista Indicadores y Resumen modular (e257f0a).
-- 2026-09-27 — Vista Precios y tema claro/oscuro (310d407).
-- 2026-09-27 — Seguimiento mes a mes y Cierre del mes guiado (a774367).
-- 2026-09-26 — Auditoría de la app contra el Excel y rediseño visual (5dc4fe2, 4fa8bee).
-- 2026-09-25 — App local en un solo HTML: Fase 3 (579a458, 2fe9f2a).
-- 2026-09-24 — Motor de cálculo con pruebas: Fase 2 (8c0543e).
-- 2026-09-24 — Auditoría del Excel y migración del registro de movimientos: Fases 0–1, fuera del repo.
-- 2026-09-24 — CLAUDE.md inicial (42c3546).
+
+**2026-09-28 — Regla de bitácora** (b880d64 y siguiente)
+- `CLAUDE.md` exige registrar cada avance en esta bitácora.
+- Formato: un evento con fecha, 2–4 bullets y su commit.
+
+**2026-09-28 — Repo renombrado** (47be66b)
+- El repo Prueba1 ahora se llama PortfolioManager en GitHub. Es el mismo repo, con la misma rama e historial.
+- El remoto local apunta al nombre nuevo.
+- Se borró la copia duplicada que se había clonado.
+
+**2026-09-28 — Subagentes** (8820b6a, e0bf832, 0f0c790)
+- Se agregaron `market-data`, `statement-reader`, `moat-researcher` y `app-verifier`. Trabajan en su propio contexto y devuelven un resumen corto.
+- Los skills les delegan el trabajo pesado y vuelven a validar con `checks.ts` lo que entregan.
+- Prueba con datos sintéticos:
+  - trajeron la TRM real;
+  - no inventaron el precio de un ticker ficticio;
+  - dejaron como pregunta una línea ambigua de un extracto.
+- Regla nueva: un valor de mitad de mes no se registra como VALUATION, porque taparía el valor de cierre.
+
+**2026-09-28 — Cierre de julio 2026** (sin commit)
+- `/month-close 2026-07`: precios, tasas e índices al 31 de julio completos.
+- Faltan 4 valores manuales, que debe dar el usuario: 2 copy portfolios, el fondo y el inmueble.
+
+**2026-09-27 — Automatización con Claude Code** (946cff2, 68b9cab)
+- `scripts/checks.ts` valida estado del cierre, movimientos, precios, tasas y activos contra un respaldo.
+- Skills: `month-close`, `import-statement` y `thesis-review`. Revisor: `finance-reviewer`.
+- Hooks: pre-commit contra datos personales y secretos, bloqueo de `--no-verify` y pruebas al terminar el turno.
+- El revisor encontró 12 hallazgos y se corrigieron todos (TRM vieja, transferencias sueltas, pares FX en 0…).
+
+**2026-09-27 — Precios, Indicadores y foso** (310d407, e257f0a, 4d942d6)
+- Vista Precios: entrada promedio, rango de 52 semanas, objetivo y ventas cerradas. Tema claro/oscuro.
+- Vista Indicadores: pesos, composición y potencial a objetivos. El Resumen permite elegir las clases que suma.
+- Foso económico según los proveedores (Morningstar, GuruFocus), con fecha y enlace.
+
+**2026-09-27 — Seguimiento y Cierre del mes** (a774367)
+- Grilla mes a mes por activo y clase, con subtotal sin inmobiliario y total.
+- Cierre guiado en 5 pasos. Guarda la foto del cierre y avisa si las cifras cambian después.
+
+**2026-09-26 — Auditoría y rediseño** (5dc4fe2, 4fa8bee)
+- Auditoría de la app contra el Excel. Opinión favorable, con salvedades: dividendos estimados e inmueble a precio de lista.
+- Se permite una valoración de 0 para un activo sin valor.
+- Rediseño: gráfica de valor, barra de asignación y tarjetas por clase frente a su índice.
+
+**2026-09-25 — App local, Fase 3** (579a458, 2fe9f2a)
+- App Preact en un solo HTML que abre desde disco. Los datos quedan en IndexedDB.
+- Pantallas: Resumen, Activos, Comparación, Movimientos, Cierre mensual y Datos.
+
+**2026-09-24 — Motor de cálculo, Fase 2** (8c0543e)
+- Costo promedio, FX, XIRR, TWR, PME y KS-PME, con pruebas verificadas a mano.
+- Valida movimientos nuevos. Incluye una muestra sintética.
+- Coincide con la referencia independiente en 9 portafolios.
+
+**2026-09-24 — Auditoría y migración, Fases 0–1** (fuera del repo)
+- Hallazgos en el Excel:
+  - dividendos USD registrados como aportes;
+  - compras en COP que pertenecen al portafolio USD;
+  - una compra de XRP que no cuadra.
+- Decisiones:
+  - los dividendos COP que llegan al banco cuentan como salida;
+  - el efectivo del bróker cuenta, la caja bancaria no;
+  - el inmueble se valora a precio de lista y va marcado como estimado.
+- Registro único de movimientos conciliado contra los cierres mensuales del Excel.
+- `CLAUDE.md` inicial (42c3546).
