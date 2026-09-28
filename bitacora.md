@@ -7,6 +7,7 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
   - Fases 0–3: auditoría, registro de movimientos, motor de cálculo y app local.
   - Skills, subagentes y hooks.
   - Visualizaciones de análisis: Resumen modular, puente de ganancia, mapa mensual, riesgo, peso vs potencial.
+  - Pestaña Dividendos (inspirada en getquin).
 - Fase 4 (precios y TRM automáticos): sin empezar.
 - Fase 5 (Netlify y Supabase): pendiente de aprobación.
 - Pendiente del usuario:
@@ -14,9 +15,16 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
   - certificado de dividendos COP;
   - extractos de eToro;
   - verificar la compra de XRP de 2020.
+- Pendiente: igualar el estilo visual al de getquin; la red del entorno bloquea sus páginas, así que se necesitan capturas del usuario o permitir el dominio.
 - Mejora anotada: el aviso de TRM del Cierre nombra el primer mes pendiente, no el mes que se está cerrando.
 
 ## Registro
+
+**2026-09-28 — Pestaña Dividendos** (ver git log)
+- `src/app/dividends.ts`: dividendos netos por mes, año y activo, a la tasa de cada fecha; últimos 12 meses frente a los 12 anteriores y año corrido, con la parte estimada.
+- Proyección de 12 meses: repite los pagos de los últimos 12 meses de lo que sigue en cartera, escalada a las unidades de hoy (en fondos, al capital). Incluye calendario y rentabilidad neta sobre valor y sobre costo.
+- Revisión de `finance-reviewer`: unidades al inicio del día del pago, fondos con retiro parcial, 29 de febrero, rentabilidad sin precio, estimados marcados, crecimiento solo con años completos. Todo corregido y con prueba.
+- Estilo getquin: no se pudo ver, porque la red bloquea getquin.com, tiendas de apps y reseñas.
 
 **2026-09-28 — Comparación con getquin** (sin commit de código)
 - getquin.com bloqueado por la red del entorno; funciones tomadas de sus páginas vía buscador.

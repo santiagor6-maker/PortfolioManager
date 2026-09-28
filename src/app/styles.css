@@ -495,3 +495,25 @@ table.heatmap td.hm.p4, table.heatmap td.hm.n4 { color: #0b0b0b; font-weight: 60
 .chart g.pt:focus-visible circle:last-of-type, .chart g.pt.on circle:nth-of-type(2) { stroke: var(--ink); }
 .key-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; vertical-align: baseline; }
 .notes { margin: 8px 0 0; padding-left: 18px; }
+
+/* Dividends: legend swatches for received / estimated / projected, and the 12-month calendar. */
+.key-sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; background: var(--c); }
+.key-sw.soft { background: color-mix(in srgb, var(--c) 45%, transparent); }
+.key-sw.outline { background: color-mix(in srgb, var(--c) 12%, transparent); border: 1.5px dashed var(--c); }
+.chart .tip .tip-sub { margin-top: 6px; font-size: 12px; color: var(--muted); }
+.div-cal { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(200px, 45%), 1fr)); gap: 10px; margin-top: 12px; }
+.div-month { background: var(--surface-2); border-radius: 10px; padding: 10px 12px; min-height: 86px; }
+.div-month.empty { background: transparent; border: 1px dashed var(--grid); min-height: 0; }
+.div-month.empty .mbar { display: none; }
+.div-month .mh { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.div-month .mh strong { white-space: nowrap; }
+.div-month .mname { font-size: 13px; color: var(--ink-2); text-transform: capitalize; }
+.div-month.empty .mh strong { color: var(--muted); font-weight: 400; }
+.div-month .mbar { height: 4px; border-radius: 2px; background: var(--grid); margin: 6px 0 8px; overflow: hidden; }
+.div-month .mbar span { display: block; height: 100%; background: var(--s1); border-radius: 2px; }
+.div-month ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.div-month li { display: grid; grid-template-columns: 8px 1fr auto auto; gap: 6px; align-items: center; font-size: 12.5px; }
+.div-month li .dot { width: 8px; height: 8px; border-radius: 50%; }
+.div-month li .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.div-month li .day { color: var(--muted); font-size: 11.5px; }
+.div-month li .amt { font-variant-numeric: tabular-nums; }

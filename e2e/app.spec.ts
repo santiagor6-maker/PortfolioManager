@@ -295,3 +295,27 @@ test('indicators: composition filters the table; edit the thesis and fundamental
   await expect(scatter.locator('g.pt')).toHaveCount(2);
   await expect(scatter.locator('details td', { hasText: 'SMPL' })).toBeAttached();
 });
+
+test('dividends: received by month and year, who pays, and the next 12 months as a projection', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await loadDemo(page);
+  await page.getByRole('link', { name: 'Dividendos' }).click();
+  await expect(page.locator('.tile').filter({ hasText: 'Desde el inicio' })).toContainText('2 pagos');
+  await expect(page.getByRole('img', { name: /Dividendos por mes de 2025/ })).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Dividendos de los últimos 12 meses por activo' }).getByRole('listitem')).toHaveCount(2);
+
+  const cal = page.getByRole('list', { name: 'Calendario de dividendos proyectados' });
+  const filled = cal.getByRole('listitem').filter({ has: page.locator('li') });
+  await expect(filled).toHaveCount(2);
+  await expect(filled.first()).toContainText('mar 2026');
+  await expect(filled.first()).toContainText('Sample Corp');
+  await expect(filled.last()).toContainText('Andes Energía SA');
+
+  const payments = page.locator('.card').filter({ has: page.getByRole('heading', { name: 'Pagos recibidos' }) });
+  await expect(payments.locator('tbody tr')).toHaveCount(2);
+  await expect(payments.locator('tbody tr').last()).toContainText('US$ 11,20');
+  await page.getByRole('button', { name: 'USD' }).click();
+  await expect(payments.locator('thead')).toContainText('En USD');
+  expect(errors).toEqual([]);
+});
