@@ -48,13 +48,13 @@ function byMonth(d: Book, year: number): ColumnGroup[] {
 }
 
 /** One column per calendar year; the as-of year adds what the projection expects for its remaining months. */
-function byYear(d: Book): ColumnGroup[] {
+function byYear(d: Book, short: (x: Decimal) => string): ColumnGroup[] {
   const asOfYear = d.asOf.slice(0, 4);
   const rest = d.calendar.filter((c) => c.date.startsWith(asOfYear)).reduce((s, c) => s.plus(c.total), new Decimal(0));
   return d.years.map((y) => ({
     label: String(y.year),
     title: `${y.year}${y.partial ? ' (en curso)' : ''}`,
-    top: y.growth !== undefined ? signed(y.growth) : undefined,
+    values: [{ text: short(y.total) }, ...(y.growth !== undefined ? [{ text: `${y.growth >= 0 ? '↗' : '↘'} ${signed(y.growth)}`, cls: sign(y.growth) }] : [])],
     columns: [
       {
         label: String(y.year),
@@ -139,6 +139,8 @@ export function Dividends() {
   const shown = all ? payments : payments.slice(0, 15);
   const yearTotal = d.years.find((y) => y.year === year);
   const best = d.byAsset.filter((a) => a.last12.gt(0))[0];
+  const whole = d.years.filter((y) => !y.partial);
+  const avg = whole.reduce((s, y) => s + y.total.toNumber(), 0) / (whole.length || 1);
 
   return (
     <>
@@ -245,9 +247,9 @@ export function Dividends() {
         <div class="card">
           <div class="card-head">
             <h2>Por año</h2>
-            <span class="small muted">Sobre cada año, el cambio frente al anterior</span>
+            <span class="small muted">Bajo cada año, el cambio frente al anterior · ⌀ promedio de los años completos</span>
           </div>
-          <Columns groups={byYear(d)} format={money$} axisFormat={axis} label="Dividendos por año" height={220} />
+          <Columns groups={byYear(d, (x) => moneyShort(x.abs().gte(1e4) ? x.div(1e3).round().times(1e3) : x, f.ccy).replace(',0 ', ' '))} format={money$} axisFormat={axis} label="Dividendos por año" height={250} axis={false} average={whole.length ? { value: avg, label: moneyShort(new Decimal(avg), f.ccy) } : undefined} />
         </div>
         <div class="card">
           <div class="card-head">
@@ -269,7 +271,7 @@ export function Dividends() {
       <div class="card">
         <div class="card-head">
           <h2>Calendario · próximos 12 meses</h2>
-          <span class="badge info">Proyección</span>
+          <span class="badge violet">Proyección</span>
         </div>
         <p class="small muted">
           Repite cada pago de los últimos 12 meses un año después, ajustado a lo que tienes hoy (las acciones; en fondos sin unidades, el capital) y convertido con la tasa del {date(f.asOf)}. No es un dividendo anunciado por la empresa: si cambia el dividendo o la fecha, cambia el pago.
@@ -291,6 +293,7 @@ export function Dividends() {
           <table>
             <thead>
               <tr>
+                <th>Estado</th>
                 <th>Fecha</th>
                 <th>Activo</th>
                 <th>Cuenta</th>
@@ -301,6 +304,7 @@ export function Dividends() {
             <tbody>
               {shown.map((p) => (
                 <tr>
+                  <td>{p.estimated ? <span class="badge warn">Estimado</span> : <span class="badge good">Pagado</span>}</td>
                   <td class="nowrap">{date(p.date)}</td>
                   <td>
                     {p.name}

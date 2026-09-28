@@ -15,10 +15,16 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
   - certificado de dividendos COP;
   - extractos de eToro;
   - verificar la compra de XRP de 2020.
-- Pendiente: igualar el estilo visual al de getquin; la red del entorno bloquea sus páginas, así que se necesitan capturas del usuario o permitir el dominio.
+- Estilo visual alineado con getquin; su tablero personal (requiere cuenta) no se pudo ver.
 - Mejora anotada: el aviso de TRM del Cierre nombra el primer mes pendiente, no el mes que se está cerrando.
 
 ## Registro
+
+**2026-09-28 — Estilo getquin** (ver siguiente commit)
+- Con acceso a app.getquin.com se extrajeron sus tokens reales: gris #f9f9f9, tarjetas blancas con borde #f2f2f2, radio 4px, sin sombras, azul #253bbd, verde #5bc87c y rojo #ef5343, más su modo oscuro.
+- Aplicado a toda la app: barra superior blanca con pestañas subrayadas, botones negros, cifras en fuente monoespaciada y etiquetas tipo píldora (Pagado, Estimado, Proyección).
+- Mapa de calor con su escala rojo/verde. Gráfico por año como el de getquin: proyección rayada, promedio punteado y cifras bajo cada año.
+- Fuentes libres similares (Inter Tight y Geist Mono) incluidas en el HTML. No se pudo ver: www.getquin.com sigue bloqueado y el tablero personal pide iniciar sesión.
 
 **2026-09-28 — Pestaña Dividendos** (55f80cc)
 - `src/app/dividends.ts`: dividendos netos por mes, año y activo, a la tasa de cada fecha; últimos 12 meses frente a los 12 anteriores y año corrido, con la parte estimada.

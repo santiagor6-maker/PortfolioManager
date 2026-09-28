@@ -83,11 +83,6 @@ function App() {
       <header class="top">
         <div class="bar">
           <div class="brand">
-            <svg width="30" height="30" viewBox="0 0 32 32" aria-hidden="true">
-              <rect width="32" height="32" rx="9" fill="rgba(255,255,255,0.16)" />
-              <path d="M7 21l6-6 4 4 8-9" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" />
-              <circle cx="25" cy="10" r="2.4" fill="#fff" />
-            </svg>
             <h1>Mis inversiones</h1>
           </div>
           <nav class="tabs" aria-label="Secciones">
