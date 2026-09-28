@@ -34,6 +34,13 @@ Stack: TypeScript, Vitest, decimal.js. Static web app (Vite) that runs locally a
 
 - Skills in `.claude/skills/`: `month-close`, `import-statement`, `thesis-review`. They work from a backup the user exports and hand back files the user imports in Datos; never edit the user's data directly. Build those files outside the repo and validate them with `scripts/checks.ts` first.
 - Before committing changes to `src/domain`, `src/data` or the report builders in `src/app`, run the `finance-reviewer` subagent (`.claude/agents/`) and address its findings.
+- Keep the main conversation for decisions and hand-overs. Delegate heavy reading to the subagents in `.claude/agents/`; they return short reports.
+  - `market-data`: month-end prices, rates and index levels.
+  - `statement-reader`: one per statement.
+  - `moat-researcher`: provider ratings, a few tickers each, in parallel.
+  - `app-verifier`: typecheck, tests, build, e2e and screenshots.
+
+  Re-run `scripts/checks.ts` on any file an agent hands back. Agents added mid-session load only at the next session; until then, run a general-purpose agent with that file's instructions.
 - Hooks: `.githooks/pre-commit` (`scripts/guard.ts`, enabled by `npm install`) blocks personal data, secrets, and code that fails the typecheck or unit tests. Never bypass it. `.claude/settings.json` enables it at session start, blocks `--no-verify`, and runs the typecheck and tests before a turn ends with code changes.
 
 ## Domain rules

@@ -8,6 +8,13 @@ argument-hint: "[cuenta]"
 
 The ledger is the source of truth. A statement becomes ledger rows in the app's CSV format. You check them with the app's own validation and reconcile them against the statement, and the user imports them. You never edit their data directly.
 
+In the main conversation, do steps 1 and 6 yourself. Hand steps 2–5 to the `statement-reader` agent (`.claude/agents/`), one per statement or account, with:
+- the statement and backup paths;
+- the account;
+- the working folder.
+
+Before step 6, re-run its `checks.ts ledger` and `holdings` commands yourself. Take its questions to the user. If you are the `statement-reader`, do steps 2–5 yourself.
+
 ## Rules
 
 - Talk to the user in Spanish.

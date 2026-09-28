@@ -36,7 +36,10 @@ Indicadores shows what research providers say about each holding (`Asset.moats`)
    - Scope is `$ARGUMENTS`: the tickers, or every market-priced stock (buckets `acciones_*`) with an open position when it says "todas" or is empty.
    - List the assets with their current `moats` and `fundamentals`, so you know what is already there and how old it is.
 
-2. **Research each asset.** For more than about five assets, you may split the work across parallel subagents, a few tickers each. Each one returns records with source, date, URL and the exact wording seen; you then validate them.
+2. **Research each asset** with the `moat-researcher` agent (`.claude/agents/`).
+   - For more than about five tickers, run several in parallel, with a few tickers each.
+   - Give each agent the tickers with the company name and exchange, the stored `moats` and `fundamentals` with their dates, and whether fundamentals are wanted.
+   - Each agent returns records with source, date, URL and the exact wording seen. Check them against the rules below before they go into the file.
    - **Morningstar Economic Moat:** `wide` / `narrow` / `none` → `rating`.
    - **GuruFocus Moat Score:** 0–10 → `score`.
    - Other providers only if the user asks.

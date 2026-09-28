@@ -16,6 +16,14 @@ The user's data lives only in their browser (IndexedDB). You work from a backup 
 - Never bypass bot protection, logins or paywalls. If a site blocks you, say so and move on.
 - Never hand over a file that fails `scripts/checks.ts`.
 
+## Subagents
+
+Keep this conversation to the status, the decisions and the hand-over. Delegate the heavy reading (`.claude/agents/`):
+- **`market-data`**: fetching prices, rates and index levels (steps 4–5).
+- **`statement-reader`**: one per statement the user sends (steps 3 and 6).
+
+Give each one the backup path, the month end, the working folder and exactly what to fetch or read. Independent agents can run in parallel. When one returns, run its `checks.ts` command on its files yourself before handing them over.
+
 ## Steps
 
 1. **Backup and month.**
@@ -38,9 +46,11 @@ The user's data lives only in their browser (IndexedDB). You work from a backup 
    "La app deja cerrar, pero hay avisos" is not done: the engine still values with a rate or price up to 10 days old, so the figures would be off. Fetch every `AVISO` item too. Leave one open only when the source truly has nothing newer (e.g. a market holiday), and say so.
 
 3. **Movements of the month.** Ask whether there were buys, sells, dividends, deposits, withdrawals or transfers not yet recorded.
-   - If they send statements, follow the `import-statement` skill for those rows.
+   - If they send statements, hand each one to a `statement-reader` agent (the `import-statement` skill).
    - Otherwise they can enter them in **Movimientos**.
    - Movements come before prices: they change what needs a price.
+
+Steps 4–5 go to one `market-data` agent. Give it the currencies, symbols and indices that the status flags as `FALTA` or `AVISO`. The rules below are what it follows and what you check in its report.
 
 4. **Exchange rates** (`fx.csv`: `ccy,date,per_usd,source`).
    - **COP:** use the official TRM (Superintendencia Financiera / Banco de la República). The datos.gov.co dataset `32sa-8pi3` has `valor` and `vigenciadesde`.
@@ -60,7 +70,7 @@ The user's data lives only in their browser (IndexedDB). You work from a backup 
 6. **Manual month-end values** (copy portfolios, funds, property).
    - These come from the user's statements or the developer's price list. Ask for them; never estimate them yourself.
    - **Simplest route:** the user types them in **Cierre del mes → paso 3**, which marks the property as an estimate by default.
-   - **If they send the statements:** build `VALUATION` rows in a movements CSV.
+   - **If they send the statements:** a `statement-reader` agent builds the `VALUATION` rows in a movements CSV:
      - Put the account and asset ids from the status, the month-end date and the value in the account currency.
      - Set `estimated=true` for list prices or appraisals, and add a note such as "valor del extracto al cierre" or "precio de lista".
      - Validate with `node scripts/checks.ts ledger <backup.json> valores.csv`.
