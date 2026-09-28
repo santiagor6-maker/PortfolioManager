@@ -13,7 +13,7 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
   2. Supabase con datos cifrados en el navegador.
   3. Precios automáticos (Twelve Data, TRM y cripto).
   4. Fundamentales mensuales desde SEC EDGAR al abrir la app.
-- Deploy y proyecto de Supabase: esperan la confirmación del usuario.
+- Sitio `portfoliomanager-sr` creado en Netlify, sin deploy todavía. El comando de deploy fue bloqueado por permisos; queda en manos del usuario. Proyecto de Supabase: pendiente.
 - Pendiente del usuario:
   - valores manuales de jul–sep 2026; el cierre de julio 2026 solo espera esto;
   - certificado de dividendos COP;
@@ -23,6 +23,11 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
 - Mejora anotada: el aviso de TRM del Cierre nombra el primer mes pendiente, no el mes que se está cerrando.
 
 ## Registro
+
+**2026-09-28 — Netlify** (061ab77)
+- `netlify.toml`: build `npm run build`, publica `dist/`.
+- El build genera `dist/_headers` con una CSP estricta que solo permite el script propio, por hash, más `X-Frame-Options`, `nosniff` y `no-referrer`. Verificado en Chromium con el ejemplo: sin errores.
+- Sitio `portfoliomanager-sr` creado en el equipo del usuario. El deploy desde esta sesión fue bloqueado por permisos, porque el comando lleva una credencial.
 
 **2026-09-28 — Plan de la siguiente etapa** (sin commit de código)
 - Orden:
