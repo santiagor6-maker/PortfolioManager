@@ -20,7 +20,7 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
 
 ## Registro
 
-**2026-09-28 — Estilo getquin** (ver siguiente commit)
+**2026-09-28 — Estilo getquin** (1e7e0f7)
 - Con acceso a app.getquin.com se extrajeron sus tokens reales: gris #f9f9f9, tarjetas blancas con borde #f2f2f2, radio 4px, sin sombras, azul #253bbd, verde #5bc87c y rojo #ef5343, más su modo oscuro.
 - Aplicado a toda la app: barra superior blanca con pestañas subrayadas, botones negros, cifras en fuente monoespaciada y etiquetas tipo píldora (Pagado, Estimado, Proyección).
 - Mapa de calor con su escala rojo/verde. Gráfico por año como el de getquin: proyección rayada, promedio punteado y cifras bajo cada año.
