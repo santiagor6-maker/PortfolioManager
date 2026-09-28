@@ -1,0 +1,7 @@
+# Static site: the single self-contained dist/index.html. Each browser keeps its own data (IndexedDB); nothing personal is deployed.
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
