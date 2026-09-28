@@ -18,6 +18,11 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
 
 ## Registro
 
+**2026-09-28 — Comparación con getquin** (sin commit de código)
+- getquin.com bloqueado por la red del entorno; funciones tomadas de sus páginas vía buscador.
+- Ya cubrimos su analítica Premium (TWR, XIRR, benchmark, máxima caída, mapas de calor).
+- Propuestas priorizadas: dividendos (calendario y proyección), reporte para declaración de renta, costos (comisiones, retenciones, TER), rayos X de ETFs, Sharpe. Pendiente elección del usuario.
+
 **2026-09-28 — Visualizaciones de análisis** (51c8de6)
 - Resumen modular: cada bloque se muestra, oculta o reordena ("Personalizar el resumen"), guardado en el navegador.
 - Bloques nuevos: ¿De dónde viene tu ganancia? (puente valor inicial → aportes → ganancia por clase → valor final, más las posiciones que más sumaron/restaron), mapa de calor de rentabilidad mensual por año, y riesgo (volatilidad, máxima caída, mejor/peor mes, curva de caídas).
