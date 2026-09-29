@@ -20,6 +20,7 @@ import { queryParam } from '../route.ts';
 import { getDataset, setDataset, useDataset, usePref } from '../store.ts';
 import { indexReturn, tracking, xirrToDate, yearToDate } from '../tracking.ts';
 import type { Tracking } from '../tracking.ts';
+import { RefreshCard } from './RefreshCard.tsx';
 import { orderedRows } from './Tracking.tsx';
 
 type Status = 'ok' | 'warn' | 'block' | 'info';
@@ -268,7 +269,7 @@ export function MonthlyClose() {
         >
           {m < 0 && (
             <p class="small">
-              {t.error ?? 'El mes todavía no termina.'} Importa precios y TRM en <a href="#/datos">Datos</a> (en la fase 4 se descargarán solos).
+              {t.error ?? 'El mes todavía no termina.'} Actualiza precios y TRM aquí abajo, o impórtalos en <a href="#/datos">Datos</a>.
             </p>
           )}
           {missing.length > 0 && <p class="small">Sin precio, se valorarían al costo: {missing.map((r) => r.label).join(', ')}. Cárgalos en <a href="#/datos">Datos</a>.</p>}
@@ -278,6 +279,7 @@ export function MonthlyClose() {
               Tasa de cambio de más de 5 días antes del cierre: {oldFx.map((r) => `${r.ccy}/USD del ${date(r.last)}`).join(', ')}. Importa la del cierre en <a href="#/datos">Datos</a>.
             </p>
           )}
+          {(m < 0 || missing.length > 0 || stale.length > 0 || oldFx.length > 0) && <RefreshCard compact />}
         </Step>
 
         <Step

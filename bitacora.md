@@ -11,10 +11,11 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
 - Plan acordado:
   1. Netlify.
   2. Supabase con datos cifrados en el navegador.
-  3. Precios automáticos (Twelve Data, TRM y cripto).
+  3. Precios automáticos (Twelve Data, TRM y cripto): hecho.
   4. Fundamentales mensuales desde SEC EDGAR al abrir la app.
 - Netlify `portfoliomanager-sr` publica esta rama en cada push.
-- Supabase `portfoliomanager` (us-east-1, gratis) sincroniza una copia cifrada. Falta que el usuario agregue el código a las plantillas de correo y haga la primera prueba real.
+- Supabase `portfoliomanager` (us-east-1, gratis): el login con enlace funciona, pero la primera copia la creó el celular vacío y el computador no quedó vinculado. El usuario lo pospuso ("muy complejo"); retomar simplificando el primer uso.
+- «Actualizar precios» (etapa 3) publicado; falta que el usuario pegue su clave de Twelve Data y lo pruebe con sus datos.
 - Pendiente del usuario:
   - valores manuales de jul–sep 2026; el cierre de julio 2026 solo espera esto;
   - certificado de dividendos COP;
@@ -24,6 +25,12 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
 - Mejora anotada: el aviso de TRM del Cierre nombra el primer mes pendiente, no el mes que se está cerrando.
 
 ## Registro
+
+**2026-09-29 — Actualizar precios**
+- Botón en Datos y en el paso 2 del Cierre: acciones y ETF de EE. UU. y tasas EUR/CAD (Twelve Data, clave guardada solo en el navegador), TRM oficial (datos.gov.co, mismo formato que la serie guardada: verificado) y XRP/BTC (CoinGecko).
+- Solo agrega días posteriores al último guardado, nunca reemplaza, pasa por las mismas revisiones que un archivo importado y corta una serie en la primera fila rechazada. Respeta el límite de 8 consultas por minuto.
+- Sin fuente gratuita (quedan con el skill de cierre): Colombia, Londres, París, Alemania, Toronto y los índices de retorno total.
+- `finance-reviewer`: aprobado; corregidos sus 5 menores (límite diario, motivos, conteo por serie, una sola corrida, pruebas de bordes). 189 unit + 31 e2e.
 
 **2026-09-29 — Entrar con el enlace del correo**
 - En el plan gratuito Supabase no deja editar las plantillas sin SMTP propio, así que el correo solo trae un enlace, sin código de 6 dígitos.

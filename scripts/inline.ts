@@ -15,7 +15,7 @@ writeFileSync(`${out}/index.html`, html);
 
 // Netlify headers: the inlined scripts are allowed by hash, nothing else runs. Fonts and the icon are data: URIs.
 const hashes = [...html.matchAll(/<script type="module">([\s\S]*?)<\/script>/g)].map((m) => `'sha256-${createHash('sha256').update(m[1]!).digest('base64')}'`);
-// The published build may sync with Supabase (VITE_SUPABASE_URL): allow only that origin besides the site.
+// The published build may sync with Supabase (VITE_SUPABASE_URL): allow that origin too.
 const supabase = process.env.VITE_SUPABASE_URL ? new URL(process.env.VITE_SUPABASE_URL).origin : '';
 const csp = [
   "default-src 'none'",
@@ -23,7 +23,8 @@ const csp = [
   "style-src 'unsafe-inline'",
   'font-src data:',
   'img-src data: blob:',
-  `connect-src 'self'${supabase ? ` ${supabase}` : ''}`,
+  // Quote sources for «Actualizar precios» (src/app/refresh.ts).
+  `connect-src 'self' https://api.twelvedata.com https://www.datos.gov.co https://api.coingecko.com${supabase ? ` ${supabase}` : ''}`,
   "base-uri 'none'",
   "form-action 'none'",
   "frame-ancestors 'none'",

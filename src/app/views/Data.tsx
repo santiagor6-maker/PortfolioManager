@@ -10,6 +10,7 @@ import { date, today } from '../format.ts';
 import { demoDataset, importBook, importFx, importLedger, importPrices, upsertAccount } from '../mutations.ts';
 import { getDataset, setDataset, useDataset } from '../store.ts';
 import { syncConfigured } from '../sync.ts';
+import { RefreshCard } from './RefreshCard.tsx';
 import { SyncCard } from './SyncCard.tsx';
 
 function FileButton({ label, accept, onText }: { label: string; accept: string; onText: (text: string, name: string) => Promise<void> | void }) {
@@ -63,6 +64,7 @@ export function DataView() {
     <>
       {msg && <div class={`notice ${msg.kind}`} role="status">{msg.text}</div>}
       {syncConfigured && <SyncCard />}
+      {!empty && <RefreshCard />}
       {empty && (
         <div class="card">
           <h2>Empezar</h2>
@@ -116,7 +118,7 @@ export function DataView() {
             </tbody>
           </table>
         </div>
-        <p class="small muted" style="margin-top:8px">Los precios se actualizan importando un archivo de precios. En la siguiente fase se descargarán automáticamente.</p>
+        <p class="small muted" style="margin-top:8px">Los precios se actualizan con «Actualizar precios» (arriba) o importando un archivo de precios.</p>
       </div>
 
       <div class="card">

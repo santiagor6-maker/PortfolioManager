@@ -578,3 +578,11 @@ table.heatmap td.hm.p4, table.heatmap td.hm.n4 { color: #ffffff; }
 .div-month li .amt { font-family: var(--mono); }
 .chart text.svg-pos { fill: var(--dv-pos); }
 .chart text.svg-neg { fill: var(--dv-neg); }
+
+/* Actualizar precios */
+.refresh-card .actions + .actions { margin-top: 10px; }
+.refresh-key { align-items: end; margin-bottom: 10px; }
+.refresh-key p { flex-basis: 100%; margin: 0; }
+.refresh-progress { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 10px 0; }
+.refresh-card .table-wrap { margin: 8px 0; }
+.refresh-card.compact { margin-top: 10px; }
