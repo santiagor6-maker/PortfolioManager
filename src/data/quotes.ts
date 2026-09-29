@@ -1,108 +1,161 @@
-import { addDays, isIsoDate } from '../domain/dates.ts';
+import { isIsoDate } from '../domain/dates.ts';
 import type { IsoDate } from '../domain/dates.ts';
 import { dec } from '../domain/money.ts';
+import type { Decimal } from '../domain/money.ts';
 import type { StoredPrice, StoredRate } from './json.ts';
 
 /**
- * Parsers for the public quote APIs the app downloads from. Each keeps only completed days after the last
- * stored one (`after` < date < `before`, or ≤ `before` for rates published in advance), tags the row with
- * its source, and rejects anything it cannot read instead of guessing.
+ * Parsers for the quote sources the stored history was built from: Yahoo Finance daily bars (through the
+ * site's /api/quotes function) and the official COP TRM. Only closed sessions after the last stored day
+ * (`after`) and before today are kept; anything unreadable is rejected, never guessed. A bar is dated by its
+ * exchange's local day. The history dated Yahoo bars by their UTC day, which is the same day for every
+ * exchange the app uses except currency pairs in British summer time (those rows sit one day early).
  */
 
-export const SOURCES = {
-  twelvedata: 'twelvedata',
-  trm: 'datos.gov.co 32sa-8pi3',
-  coingecko: 'coingecko',
-} as const;
+export const SOURCES = { yahoo: 'yahoo', trm: 'datos.gov.co 32sa-8pi3' } as const;
 
-/** The API answered, but not with data: the reason is shown to the user as is. */
+/** Symbols the quote function accepts (the same pattern as netlify/functions/quotes.mts). */
+export const YAHOO_SYMBOL = /^[A-Z0-9^][A-Z0-9^.=-]{0,19}$/;
+
+/** The source answered, but not with usable data: the reason is shown to the user as is. */
 export class QuoteError extends Error {
-  /** Retrying later can work (per-minute limit). */
-  readonly retry: boolean;
-
-  constructor(message: string, retry = false) {
+  constructor(message: string) {
     super(message);
     this.name = 'QuoteError';
-    this.retry = retry;
   }
 }
 
-interface TwelveDataBar {
-  datetime: string;
-  close: string;
-}
-interface TwelveDataReply {
-  status?: string;
-  code?: number;
-  message?: string;
-  meta?: { symbol?: string; currency?: string };
-  values?: TwelveDataBar[];
+/** What /api/quotes returns per symbol (netlify/functions/quotes.mts): Yahoo's bars, untouched. */
+export interface YahooBars {
+  currency?: string;
+  /** The exchange's time zone (e.g. Europe/London for currency pairs). */
+  timezone?: string;
+  /** Split dates in the window (Unix seconds). */
+  splits?: number[];
+  timestamps: number[];
+  close: (number | null)[];
+  adjclose?: (number | null)[];
 }
 
-/** Twelve Data's error body; "no data in range" is not an error, just nothing new. */
-function twelveDataBars(body: unknown): TwelveDataBar[] {
-  const r = body as TwelveDataReply;
-  if (r?.status === 'error') {
-    if (r.code === 400 && /no data is available/i.test(r.message ?? '')) return [];
-    if (r.code === 401) throw new QuoteError('Twelve Data no acepta la clave: revísala en Datos.');
-    if (r.code === 404) throw new QuoteError('Twelve Data no conoce ese símbolo.');
-    if (r.code === 429 && /for the day|daily/i.test(r.message ?? '')) throw new QuoteError('Se agotaron las 800 consultas diarias de Twelve Data. Intenta mañana.');
-    if (r.code === 429) throw new QuoteError('Se agotaron las consultas de Twelve Data por este minuto (8 por minuto).', true);
-    throw new QuoteError(`Twelve Data: ${r.message ?? `error ${r.code}`}`);
+const DAY_S = 86_400;
+const formats = new Map<string, Intl.DateTimeFormat>();
+
+/** The local day at the exchange: a currency session that opens Sunday 23:00 UTC in summer is Monday's. */
+function localDay(t: number, tz: string | undefined): IsoDate {
+  if (!tz) return new Date(t * 1000).toISOString().slice(0, 10);
+  let f = formats.get(tz);
+  if (!f) {
+    try {
+      f = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' });
+    } catch {
+      throw new QuoteError(`Zona horaria desconocida: ${tz}`);
+    }
+    formats.set(tz, f);
   }
-  if (!Array.isArray(r?.values)) throw new QuoteError('Twelve Data respondió algo que no es una serie de precios.');
-  return r.values;
+  return f.format(new Date(t * 1000));
 }
 
-const positive = (s: unknown) => {
-  if (typeof s !== 'string' && typeof s !== 'number') return undefined;
-  try {
-    const v = dec(s);
-    return v.isFinite() && v.gt(0) ? v : undefined;
-  } catch {
-    return undefined;
-  }
-};
-
-/** Daily closes of a stock or ETF (`/time_series?interval=1day`), in the asset's currency. */
-export function parseTwelveDataSeries(body: unknown, symbol: string, ccy: string, after: IsoDate, before: IsoDate): StoredPrice[] {
-  const bars = twelveDataBars(body);
-  const quoted = (body as TwelveDataReply).meta?.currency;
-  if (quoted && quoted !== ccy) throw new QuoteError(`Twelve Data cotiza ${symbol} en ${quoted}, no en ${ccy}.`);
-  const out: StoredPrice[] = [];
-  for (const b of bars) {
-    const date = b.datetime?.slice(0, 10);
-    const close = positive(b.close);
-    if (!date || !isIsoDate(date) || !close || date <= after || date >= before) continue;
-    out.push({ symbol, date, close: close.toString(), ccy, source: SOURCES.twelvedata });
-  }
-  return out.sort((x, y) => x.date.localeCompare(y.date));
+/**
+ * One value per day, only for sessions that are over: a bar is complete a full day after it opens (a daily
+ * bar never lasts longer), so a session still trading is never stored. `now` is in Unix seconds.
+ */
+function days(bars: unknown, pick: 'close' | 'adjclose', now: number): Map<IsoDate, number> {
+  const b = bars as Partial<YahooBars> & { error?: string };
+  if (b?.error) throw new QuoteError(b.error);
+  const values = b?.[pick];
+  if (!Array.isArray(b?.timestamps) || !Array.isArray(values)) throw new QuoteError('Yahoo Finance respondió algo que no es una serie de precios.');
+  const out = new Map<IsoDate, number>();
+  b.timestamps.forEach((t, i) => {
+    const v = values[i];
+    if (typeof t !== 'number' || t + DAY_S > now || typeof v !== 'number' || !Number.isFinite(v) || v <= 0) return;
+    out.set(localDay(t, b.timezone), v);
+  });
+  return out;
 }
 
-/** Currencies quoted against USD by market convention (EUR/USD); the rest as USD/XXX. */
-const QUOTED_IN_USD = new Set(['EUR', 'GBP', 'AUD', 'NZD']);
+/** A Yahoo close as stored: rounded to 6 decimals, as an exact decimal string. */
+const round6 = (v: number): Decimal => dec(String(Number(v.toFixed(6))));
 
-/** The Twelve Data forex pair for a currency, and whether its close is USD per unit (to invert). */
-export function fxPair(ccy: string): { pair: string; inverted: boolean } {
-  return QUOTED_IN_USD.has(ccy) ? { pair: `${ccy}/USD`, inverted: true } : { pair: `USD/${ccy}`, inverted: false };
+const inRange = (d: IsoDate, after: IsoDate, before: IsoDate) => isIsoDate(d) && d > after && d < before;
+const nowS = () => Math.floor(Date.now() / 1000);
+
+function checkCurrency(bars: unknown, symbol: string, ccy: string) {
+  const quoted = (bars as YahooBars | undefined)?.currency;
+  if (quoted && quoted !== ccy) throw new QuoteError(`Yahoo Finance cotiza ${symbol} en ${quoted}, no en ${ccy}.`);
 }
 
-/** Daily closes of a forex pair, stored as units of `ccy` per USD (inverted for EUR/USD-style pairs). */
-export function parseTwelveDataFx(body: unknown, ccy: string, after: IsoDate, before: IsoDate): StoredRate[] {
-  const { inverted } = fxPair(ccy);
-  const out: StoredRate[] = [];
-  for (const b of twelveDataBars(body)) {
-    const date = b.datetime?.slice(0, 10);
-    const v = positive(b.close);
-    if (!date || !isIsoDate(date) || !v || date <= after || date >= before) continue;
-    out.push({ ccy, date, perUsd: (inverted ? dec(1).div(v) : v).toString(), source: SOURCES.twelvedata });
+/**
+ * Daily closes of a stock, ETF, crypto or price index, in `ccy` (checked against Yahoo's quote currency).
+ * Yahoo's closes are split-adjusted back in time, so a split after the last stored day would put new days
+ * on another scale than the stored ones (and than the units in the ledger): the series stops and says so.
+ */
+export function parseYahooCloses(bars: unknown, symbol: string, ccy: string, after: IsoDate, before: IsoDate, now = nowS()): StoredPrice[] {
+  checkCurrency(bars, symbol, ccy);
+  const closes = days(bars, 'close', now);
+  const b = bars as YahooBars;
+  const split = (b.splits ?? []).map((t) => localDay(t, b.timezone)).filter((d) => d > after).sort()[0];
+  if (split) throw new QuoteError(`${symbol} tuvo un split el ${split}: registra el cambio de unidades y pídele a Claude la serie de precios; no se agregó nada.`);
+  return [...closes]
+    .filter(([d]) => inRange(d, after, before))
+    .map(([date, v]) => ({ symbol, date, close: round6(v).toString(), ccy, source: SOURCES.yahoo }))
+    .sort((x, y) => x.date.localeCompare(y.date));
+}
+
+/**
+ * A total-return index kept as an ETF's adjusted close. Yahoo rescales the whole adjusted history at every
+ * dividend, so new days cannot be appended as they come: each is chained from the last stored level,
+ * level(t) = stored(after) × adj(t) / adj(after), with `adj` from this same download. The stored days just
+ * before (`overlap`) must move exactly like this download: if not (a dividend Yahoo adjusted late, a
+ * rebuilt series), chaining would carry the error forward, so nothing is added.
+ */
+export function parseYahooAdjusted(
+  bars: unknown,
+  symbol: string,
+  ccy: string,
+  after: IsoDate,
+  anchor: string,
+  before: IsoDate,
+  overlap: readonly { date: IsoDate; close: string }[] = [],
+  now = nowS(),
+): StoredPrice[] {
+  checkCurrency(bars, symbol, ccy);
+  const adj = days(bars, 'adjclose', now);
+  const base = adj.get(after);
+  const next = [...adj].filter(([d]) => inRange(d, after, before));
+  if (next.length === 0) return [];
+  if (base === undefined) throw new QuoteError(`Yahoo Finance no trae el ${after} (el último día guardado), así que no se puede empalmar la serie.`);
+  const level = dec(anchor);
+  const b = dec(String(base));
+  let checked = 0;
+  for (const o of overlap) {
+    const a = adj.get(o.date);
+    if (a === undefined) continue;
+    checked++;
+    const stored = dec(o.close).div(level);
+    const fresh = dec(String(a)).div(b);
+    if (stored.minus(fresh).abs().div(fresh).gt(1e-6)) {
+      throw new QuoteError(`La serie guardada de ${symbol} no se mueve igual que Yahoo desde el ${o.date} (¿un dividendo ajustado tarde?): pídele a Claude revisarla; no se agregó nada.`);
+    }
   }
-  return out.sort((x, y) => x.date.localeCompare(y.date));
+  if (overlap.length > 0 && checked === 0) throw new QuoteError(`Yahoo Finance no trae los días guardados antes del ${after} de ${symbol}, así que no se pudo comprobar el empalme; no se agregó nada.`);
+  return next
+    .map(([date, v]) => ({ symbol, date, close: level.times(dec(String(v))).div(b).toSignificantDigits(15).toString(), ccy, source: SOURCES.yahoo }))
+    .sort((x, y) => x.date.localeCompare(y.date));
+}
+
+/** Yahoo's pair for a currency: `EURUSD=X` is USD per unit, stored inverted as units per USD (as the history). */
+export const yahooFxSymbol = (ccy: string) => `${ccy}USD=X`;
+
+export function parseYahooFx(bars: unknown, ccy: string, after: IsoDate, before: IsoDate, now = nowS()): StoredRate[] {
+  return [...days(bars, 'close', now)]
+    .filter(([d]) => inRange(d, after, before))
+    .map(([date, v]) => ({ ccy, date, perUsd: dec(1).div(round6(v)).toString(), source: SOURCES.yahoo }))
+    .sort((x, y) => x.date.localeCompare(y.date));
 }
 
 /**
  * The official COP TRM (datos.gov.co dataset 32sa-8pi3). One row per rate, dated the day it takes effect:
- * the rate set on a Friday covers the weekend and is stored once, as the app already does. It is published
+ * the rate set on a Friday covers the weekend and is stored once, as the history does. It is published
  * the business day before, so today's rate counts (`date ≤ before`).
  */
 export function parseTrm(body: unknown, after: IsoDate, before: IsoDate): StoredRate[] {
@@ -110,43 +163,14 @@ export function parseTrm(body: unknown, after: IsoDate, before: IsoDate): Stored
   const out: StoredRate[] = [];
   for (const r of body as { valor?: string; unidad?: string; vigenciadesde?: string }[]) {
     const date = r.vigenciadesde?.slice(0, 10);
-    const v = positive(r.valor);
-    if (r.unidad !== 'COP' || !date || !isIsoDate(date) || !v || date <= after || date > before) continue;
+    let v: Decimal | undefined;
+    try {
+      v = r.valor ? dec(r.valor) : undefined;
+    } catch {
+      v = undefined;
+    }
+    if (r.unidad !== 'COP' || !date || !isIsoDate(date) || !v || !v.gt(0) || date <= after || date > before) continue;
     out.push({ ccy: 'COP', date, perUsd: v.toString(), source: SOURCES.trm });
   }
   return out.sort((x, y) => x.date.localeCompare(y.date));
-}
-
-/** CoinGecko coin ids for the crypto symbols the app uses (Yahoo style, e.g. XRP-USD). */
-export const COINGECKO_IDS: Record<string, string> = {
-  'BTC-USD': 'bitcoin',
-  'ETH-USD': 'ethereum',
-  'XRP-USD': 'ripple',
-  'SOL-USD': 'solana',
-  'ADA-USD': 'cardano',
-  'DOGE-USD': 'dogecoin',
-  'BNB-USD': 'binancecoin',
-  'LTC-USD': 'litecoin',
-};
-
-const DAY_MS = 86_400_000;
-
-/**
- * Daily USD prices from CoinGecko's `/market_chart?interval=daily`. The point at 00:00 UTC is the price
- * when day D ends, i.e. the close of the day before (the convention of the stored Yahoo series); the last
- * point, taken at the moment of the request, is not a close and is dropped.
- */
-export function parseCoinGecko(body: unknown, symbol: string, after: IsoDate, before: IsoDate): StoredPrice[] {
-  const r = body as { prices?: unknown; status?: { error_code?: number; error_message?: string }; error?: string };
-  if (r?.status?.error_code === 429) throw new QuoteError('CoinGecko limita las consultas por minuto. Intenta en un momento.', true);
-  if (!Array.isArray(r?.prices)) throw new QuoteError(`CoinGecko: ${r?.status?.error_message ?? r?.error ?? 'respuesta sin precios'}`);
-  const out = new Map<string, StoredPrice>();
-  for (const p of r.prices as unknown[]) {
-    if (!Array.isArray(p) || typeof p[0] !== 'number' || p[0] % DAY_MS !== 0) continue;
-    const date = addDays(new Date(p[0]).toISOString().slice(0, 10), -1);
-    const close = positive(p[1]);
-    if (!close || date <= after || date >= before) continue;
-    out.set(date, { symbol, date, close: close.toSignificantDigits(10).toString(), ccy: 'USD', source: SOURCES.coingecko });
-  }
-  return [...out.values()].sort((x, y) => x.date.localeCompare(y.date));
 }

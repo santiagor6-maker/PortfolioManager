@@ -1,58 +1,96 @@
 import { describe, expect, it } from 'vitest';
 import { emptyDataset, toStored } from '../src/data/json.ts';
 import type { Dataset } from '../src/data/json.ts';
-import { QuoteError, fxPair, parseCoinGecko, parseTrm, parseTwelveDataFx, parseTwelveDataSeries } from '../src/data/quotes.ts';
-import { applyRefresh, jobUrl, refreshPlan, runRefresh } from '../src/app/refresh.ts';
+import { QuoteError, parseTrm, parseYahooAdjusted, parseYahooCloses, parseYahooFx } from '../src/data/quotes.ts';
+import { dec } from '../src/domain/money.ts';
+import { applyRefresh, quotesUrl, refreshPlan, runRefresh } from '../src/app/refresh.ts';
 import type { JobResult } from '../src/app/refresh.ts';
+import { handle } from '../netlify/functions/quotes.mts';
 import { tx } from './helpers.ts';
 
-// Synthetic replies in the real formats of each API (made-up tickers and values).
-const td = (values: { datetime: string; close: string }[], currency = 'USD') => ({
-  meta: { symbol: 'FAKE', interval: '1day', currency, exchange_timezone: 'America/New_York' },
-  values: values.map((v) => ({ ...v, open: '1', high: '1', low: '1', volume: '100' })),
-  status: 'ok',
+// Yahoo bars as /api/quotes relays them (fictional tickers and values). US bars are stamped at the 13:30 UTC open.
+const at = (d: string, hhmm = '13:30') => Date.parse(`${d}T${hhmm}:00Z`) / 1000;
+const bars = (rows: [string, number | null][], extra: { currency?: string; adj?: (number | null)[] } = {}) => ({
+  ...(extra.currency ? { currency: extra.currency } : {}),
+  timestamps: rows.map(([d]) => at(d)),
+  close: rows.map(([, c]) => c),
+  ...(extra.adj ? { adjclose: extra.adj } : {}),
 });
 
-describe('Twelve Data', () => {
-  it('keeps completed days after the last stored one, closes as exact decimals', () => {
-    const rows = parseTwelveDataSeries(
-      td([
-        { datetime: '2025-07-08', close: '10.00000' },
-        { datetime: '2025-07-09', close: '10.25000' },
-        { datetime: '2025-07-10', close: '10.50000' },
-        { datetime: '2025-07-11', close: '10.75000' },
-      ]),
-      'FAKE',
-      'USD',
-      '2025-07-08',
-      '2025-07-11',
-    );
-    expect(rows).toEqual([
-      { symbol: 'FAKE', date: '2025-07-09', close: '10.25', ccy: 'USD', source: 'twelvedata' },
-      { symbol: 'FAKE', date: '2025-07-10', close: '10.5', ccy: 'USD', source: 'twelvedata' },
+describe('Yahoo closes', () => {
+  it('one close per day after the last stored one (the UTC day when Yahoo gives no time zone), rounded to 6 decimals; today and empty bars are left out', () => {
+    const b = bars([['2025-07-03', 100], ['2025-07-07', 101.234567891], ['2025-07-08', null], ['2025-07-09', 102.5], ['2025-07-10', 103]], { currency: 'USD' });
+    expect(parseYahooCloses(b, 'FAKE', 'USD', '2025-07-03', '2025-07-10')).toEqual([
+      { symbol: 'FAKE', date: '2025-07-07', close: '101.234568', ccy: 'USD', source: 'yahoo' },
+      { symbol: 'FAKE', date: '2025-07-09', close: '102.5', ccy: 'USD', source: 'yahoo' },
     ]);
   });
 
-  it('rejects a quote in another currency and reads its error replies', () => {
-    expect(() => parseTwelveDataSeries(td([], 'EUR'), 'FAKE', 'USD', '2025-01-01', '2025-02-01')).toThrow(/en EUR, no en USD/);
-    expect(parseTwelveDataSeries({ code: 400, message: 'No data is available on the specified dates. Try setting different start/end dates.', status: 'error' }, 'FAKE', 'USD', '2025-01-01', '2025-02-01')).toEqual([]);
-    expect(() => parseTwelveDataSeries({ code: 401, message: '**apikey** parameter is incorrect', status: 'error' }, 'FAKE', 'USD', '2025-01-01', '2025-02-01')).toThrow(/clave/);
-    try {
-      parseTwelveDataSeries({ code: 429, message: 'You have run out of API credits for the current minute.', status: 'error' }, 'FAKE', 'USD', '2025-01-01', '2025-02-01');
-      expect.unreachable();
-    } catch (e) {
-      expect(e).toBeInstanceOf(QuoteError);
-      expect((e as QuoteError).retry).toBe(true);
-    }
+  it('a session still trading is never stored: a bar counts once a full day has passed since it opened', () => {
+    const b = bars([['2025-07-07', 10], ['2025-07-08', 10.5]], { currency: 'USD' });
+    const now = at('2025-07-09', '12:00'); // Tuesday's bar opened 22.5 h ago: still open for this rule
+    expect(parseYahooCloses(b, 'FAKE', 'USD', '2025-07-04', '2025-07-10', now).map((r) => r.date)).toEqual(['2025-07-07']);
+    expect(parseYahooCloses(b, 'FAKE', 'USD', '2025-07-04', '2025-07-10', at('2025-07-09', '13:30')).map((r) => r.date)).toEqual(['2025-07-07', '2025-07-08']);
   });
 
-  it('stores forex as units per USD: EUR/USD is inverted, USD/CAD is not', () => {
-    expect(fxPair('EUR')).toEqual({ pair: 'EUR/USD', inverted: true });
-    expect(fxPair('CAD')).toEqual({ pair: 'USD/CAD', inverted: false });
-    expect(parseTwelveDataFx(td([{ datetime: '2025-07-09', close: '1.25000' }]), 'EUR', '2025-07-08', '2025-07-10')).toEqual([
-      { ccy: 'EUR', date: '2025-07-09', perUsd: '0.8', source: 'twelvedata' },
+  it('a split after the last stored day stops the series (Yahoo rescales earlier closes)', () => {
+    const b = { ...bars([['2025-07-07', 50], ['2025-07-08', 51]], { currency: 'USD' }), splits: [at('2025-07-08')] };
+    expect(() => parseYahooCloses(b, 'FAKE', 'USD', '2025-07-04', '2025-07-10')).toThrow(/split el 2025-07-08/);
+    // One before the last stored day is already in the stored scale.
+    expect(parseYahooCloses({ ...b, splits: [at('2025-07-01')] }, 'FAKE', 'USD', '2025-07-04', '2025-07-10')).toHaveLength(2);
+  });
+
+  it('rejects another currency (e.g. pence for pounds) and relays the function error', () => {
+    expect(() => parseYahooCloses(bars([], { currency: 'GBp' }), 'FAKE.L', 'GBP', '2025-07-01', '2025-07-10')).toThrow(/en GBp, no en GBP/);
+    expect(() => parseYahooCloses({ error: 'Yahoo Finance no tiene datos de FAKE (404).' }, 'FAKE', 'USD', '2025-07-01', '2025-07-10')).toThrow(/no tiene datos/);
+    expect(() => parseYahooCloses({ nope: 1 }, 'FAKE', 'USD', '2025-07-01', '2025-07-10')).toThrow(QuoteError);
+  });
+
+  it('a currency session is dated by its London day: in summer Monday opens Sunday 23:00 UTC', () => {
+    const b = { currency: 'USD', timezone: 'Europe/London', timestamps: [at('2025-07-06', '23:00'), at('2025-07-07', '23:00')], close: [1.25, 1.2] };
+    // At midday Tuesday, Tuesday's session (opened Monday 23:00 UTC) is still trading: only Monday's is kept.
+    expect(parseYahooFx(b, 'EUR', '2025-07-04', '2025-07-10', at('2025-07-08', '12:00')).map((r) => [r.date, r.perUsd])).toEqual([['2025-07-07', '0.8']]);
+    // In winter the session opens at 00:00 UTC, the same day.
+    const w = { currency: 'USD', timezone: 'Europe/London', timestamps: [at('2025-01-06', '00:00')], close: [1.25] };
+    expect(parseYahooFx(w, 'EUR', '2025-01-03', '2025-01-10').map((r) => r.date)).toEqual(['2025-01-06']);
+  });
+
+  it('exchange rates: XXXUSD=X is USD per unit, stored inverted as units per USD', () => {
+    const b = bars([['2025-07-07', 1.25], ['2025-07-08', 1.173412345]]);
+    expect(parseYahooFx(b, 'EUR', '2025-07-04', '2025-07-09')).toEqual([
+      { ccy: 'EUR', date: '2025-07-07', perUsd: '0.8', source: 'yahoo' },
+      { ccy: 'EUR', date: '2025-07-08', perUsd: dec(1).div('1.173412').toString(), source: 'yahoo' },
     ]);
-    expect(parseTwelveDataFx(td([{ datetime: '2025-07-09', close: '1.36500' }]), 'CAD', '2025-07-08', '2025-07-10')[0]!.perUsd).toBe('1.365');
+  });
+});
+
+describe('Yahoo adjusted close (total-return index from an ETF)', () => {
+  // Stored level on Jul 3 = 200 (an older download). Today's download is rescaled by a later dividend, so Jul 3 reads 98:
+  // the new days are chained from the stored level, 200 × adj(t) / adj(Jul 3).
+  const b = bars([['2025-07-03', 99], ['2025-07-07', 100], ['2025-07-08', 97]], { currency: 'USD', adj: [98, 99, 98.49] });
+
+  it('chains each new day onto the stored level', () => {
+    expect(parseYahooAdjusted(b, 'BENCH:FAKE-TR', 'USD', '2025-07-03', '200', '2025-07-09')).toEqual([
+      // 200 × 99 / 98 = 202.04081632653061…; 200 × 98.49 / 98 = 201
+      { symbol: 'BENCH:FAKE-TR', date: '2025-07-07', close: '202.040816326531', ccy: 'USD', source: 'yahoo' },
+      { symbol: 'BENCH:FAKE-TR', date: '2025-07-08', close: '201', ccy: 'USD', source: 'yahoo' },
+    ]);
+  });
+
+  it('the stored days just before must move like the download; otherwise nothing is chained', () => {
+    const withBefore = bars([['2025-07-02', 97], ['2025-07-03', 99], ['2025-07-07', 100]], { currency: 'USD', adj: [97, 98, 99] });
+    // Stored Jul 2 = 200 × 97/98 matches; a stored level that moved differently (a late dividend) is refused.
+    const good = [{ date: '2025-07-02', close: dec(200).times(97).div(98).toString() }];
+    expect(parseYahooAdjusted(withBefore, 'BENCH:FAKE-TR', 'USD', '2025-07-03', '200', '2025-07-09', good)).toHaveLength(1);
+    expect(() => parseYahooAdjusted(withBefore, 'BENCH:FAKE-TR', 'USD', '2025-07-03', '200', '2025-07-09', [{ date: '2025-07-02', close: '199' }])).toThrow(/no se mueve igual/);
+    // Stored days the download does not have: nothing could be checked, so nothing is chained.
+    expect(() => parseYahooAdjusted(withBefore, 'BENCH:FAKE-TR', 'USD', '2025-07-03', '200', '2025-07-09', [{ date: '2025-06-30', close: '198' }])).toThrow(/no se pudo comprobar/);
+  });
+
+  it('without the last stored day in the download it cannot chain, and says so', () => {
+    const missing = bars([['2025-07-07', 100]], { adj: [99] });
+    expect(() => parseYahooAdjusted(missing, 'BENCH:FAKE-TR', 'USD', '2025-07-03', '200', '2025-07-09')).toThrow(/empalmar/);
+    expect(parseYahooAdjusted(bars([['2025-07-03', 99]], { adj: [98] }), 'BENCH:FAKE-TR', 'USD', '2025-07-03', '200', '2025-07-09')).toEqual([]);
   });
 });
 
@@ -73,26 +111,7 @@ describe('TRM (datos.gov.co)', () => {
   });
 });
 
-describe('CoinGecko', () => {
-  const day = (d: string) => Date.parse(`${d}T00:00:00Z`);
-  it('the 00:00 UTC point is the close of the day before; the live last point is dropped', () => {
-    const body = { prices: [[day('2025-07-08'), 2.1], [day('2025-07-09'), 2.2], [day('2025-07-10'), 2.3], [day('2025-07-10') + 3_600_000, 2.35]] };
-    expect(parseCoinGecko(body, 'FAKE-USD', '2025-07-07', '2025-07-10')).toEqual([
-      { symbol: 'FAKE-USD', date: '2025-07-08', close: '2.2', ccy: 'USD', source: 'coingecko' },
-      { symbol: 'FAKE-USD', date: '2025-07-09', close: '2.3', ccy: 'USD', source: 'coingecko' },
-    ]);
-  });
-  it('a rate-limit reply can be retried', () => {
-    try {
-      parseCoinGecko({ status: { error_code: 429, error_message: 'rate limit' } }, 'FAKE-USD', '2025-07-07', '2025-07-10');
-      expect.unreachable();
-    } catch (e) {
-      expect((e as QuoteError).retry).toBe(true);
-    }
-  });
-});
-
-/** A small book: a US stock, a Colombian stock, a London ETF, a crypto, a stock sold long ago, two indices; COP and EUR. */
+/** A small book: a US stock, a Colombian stock, a London ETF, a crypto, a stock sold long ago, three indices; COP and EUR. */
 function book(): Dataset {
   const d = emptyDataset();
   d.accounts = [
@@ -102,7 +121,6 @@ function book(): Dataset {
   d.assets = [
     { id: 'US1', name: 'US One', ccy: 'USD', bucket: 'acciones_usd', pricing: 'market', symbol: 'USONE' },
     { id: 'CO1', name: 'Colombia One', ccy: 'COP', bucket: 'acciones_cop', pricing: 'market', symbol: 'COONE.CL' },
-    { id: 'LN1', name: 'London ETF', ccy: 'USD', bucket: 'acciones_usd', pricing: 'market', symbol: 'LNONE.L' },
     { id: 'EU1', name: 'Euro One', ccy: 'EUR', bucket: 'acciones_usd', pricing: 'market', symbol: 'EUONE.PA' },
     { id: 'XRP', name: 'XRP', ccy: 'USD', bucket: 'cripto', pricing: 'market', symbol: 'XRP-USD' },
     { id: 'OLD', name: 'Sold', ccy: 'USD', bucket: 'acciones_usd', pricing: 'market', symbol: 'OLD' },
@@ -110,24 +128,34 @@ function book(): Dataset {
   ];
   d.benchmarks = [
     { symbol: 'BENCH:BTC', name: 'Bitcoin', buckets: ['cripto'] },
-    { symbol: 'BENCH:SP-TR', name: 'S&P TR', buckets: ['acciones_usd'] },
+    { symbol: 'BENCH:QQQ-TR', name: 'Nasdaq-100 TR', buckets: ['acciones_usd'] },
+    { symbol: 'BENCH:OTHER', name: 'Otro índice', buckets: ['acciones_usd'] },
   ];
   d.ledger = [
     tx('2025-01-02', 'usd', 'DEPOSIT', 10000),
     tx('2025-01-02', 'cop', 'DEPOSIT', 10000000, { ccy: 'COP' }),
     tx('2025-01-03', 'usd', 'BUY', -1000, { asset: 'US1', q: 10 }),
-    tx('2025-01-03', 'usd', 'BUY', -1000, { asset: 'LN1', q: 10 }),
     tx('2025-01-03', 'usd', 'BUY', -1000, { asset: 'EU1', q: 10 }),
     tx('2025-01-03', 'usd', 'BUY', -500, { asset: 'XRP', q: 250 }),
     tx('2025-01-03', 'usd', 'BUY', -500, { asset: 'OLD', q: 5 }),
     tx('2025-02-03', 'usd', 'SELL', 600, { asset: 'OLD', q: 5 }),
     tx('2025-01-03', 'cop', 'BUY', -1000000, { asset: 'CO1', q: 100, ccy: 'COP' }),
   ].map((t, i) => toStored({ ...t, id: `t${i}` }));
-  const p = (symbol: string, date: string, close: string, ccy = 'USD') => ({ symbol, date, close, ccy, source: 'test' });
-  d.prices = [p('USONE', '2025-07-03', '120'), p('COONE.CL', '2025-07-03', '11000', 'COP'), p('LNONE.L', '2025-07-03', '105'), p('EUONE.PA', '2025-07-03', '95', 'EUR'), p('XRP-USD', '2025-07-06', '2.2'), p('OLD', '2025-02-03', '120'), p('BENCH:BTC', '2025-07-06', '100000'), p('BENCH:SP-TR', '2025-07-03', '5000')];
+  const p = (symbol: string, date: string, close: string, ccy = 'USD') => ({ symbol, date, close, ccy, source: 'yahoo' });
+  d.prices = [
+    p('USONE', '2025-07-03', '120'),
+    p('COONE.CL', '2025-07-03', '11000', 'COP'),
+    p('EUONE.PA', '2025-07-03', '95', 'EUR'),
+    p('XRP-USD', '2025-07-06', '2.2'),
+    p('OLD', '2025-02-03', '120'),
+    p('BENCH:BTC', '2025-07-06', '100000'),
+    p('BENCH:QQQ-TR', '2025-07-02', '300'),
+    p('BENCH:QQQ-TR', '2025-07-03', '303.5'),
+    p('BENCH:OTHER', '2025-07-03', '5000'),
+  ];
   d.fx = [
-    { ccy: 'COP', date: '2025-07-04', perUsd: '4000', source: 'test' },
-    { ccy: 'EUR', date: '2025-07-03', perUsd: '0.9', source: 'test' },
+    { ccy: 'COP', date: '2025-07-04', perUsd: '4000', source: 'datos.gov.co 32sa-8pi3' },
+    { ccy: 'EUR', date: '2025-07-03', perUsd: '0.9', source: 'yahoo' },
   ];
   return d;
 }
@@ -135,166 +163,145 @@ function book(): Dataset {
 const TODAY = '2025-07-08'; // a Tuesday: Friday 4 and Monday 7 are completed trading days
 
 describe('refreshPlan', () => {
-  it('each series in use goes to the source that covers it; the rest is listed with why', () => {
-    const plan = refreshPlan(book(), TODAY, true);
+  it('every series in use comes from Yahoo (any exchange) or the TRM; a sold stock and an unknown index do not', () => {
+    const plan = refreshPlan(book(), TODAY);
     expect(plan.jobs).toEqual([
-      { kind: 'price', provider: 'twelvedata', symbol: 'USONE', name: 'US One', ccy: 'USD', after: '2025-07-03' },
-      { kind: 'price', provider: 'coingecko', symbol: 'XRP-USD', name: 'XRP', ccy: 'USD', after: '2025-07-06' },
-      { kind: 'price', provider: 'coingecko', symbol: 'BENCH:BTC', name: 'Bitcoin', ccy: 'USD', after: '2025-07-06' },
+      { kind: 'price', provider: 'yahoo', symbol: 'USONE', yahoo: 'USONE', name: 'US One', ccy: 'USD', after: '2025-07-03' },
+      { kind: 'price', provider: 'yahoo', symbol: 'COONE.CL', yahoo: 'COONE.CL', name: 'Colombia One', ccy: 'COP', after: '2025-07-03' },
+      { kind: 'price', provider: 'yahoo', symbol: 'EUONE.PA', yahoo: 'EUONE.PA', name: 'Euro One', ccy: 'EUR', after: '2025-07-03' },
+      { kind: 'price', provider: 'yahoo', symbol: 'XRP-USD', yahoo: 'XRP-USD', name: 'XRP', ccy: 'USD', after: '2025-07-06' },
+      { kind: 'price', provider: 'yahoo', symbol: 'BENCH:BTC', yahoo: 'BTC-USD', name: 'Bitcoin', ccy: 'USD', after: '2025-07-06' },
+      // An ETF's adjusted close is chained from the last stored level.
+      { kind: 'price', provider: 'yahoo', symbol: 'BENCH:QQQ-TR', yahoo: 'QQQ', name: 'Nasdaq-100 TR', ccy: 'USD', after: '2025-07-03', anchor: '303.5', overlap: [{ date: '2025-07-02', close: '300' }] },
       { kind: 'fx', provider: 'trm', ccy: 'COP', after: '2025-07-04' },
-      { kind: 'fx', provider: 'twelvedata', ccy: 'EUR', after: '2025-07-03' },
+      { kind: 'fx', provider: 'yahoo', ccy: 'EUR', yahoo: 'EURUSD=X', after: '2025-07-03' },
     ]);
-    expect(plan.uncovered.map((u) => [u.symbol, u.reason.split(':')[0]])).toEqual([
-      ['COONE.CL', 'Bolsa de Colombia'],
-      ['LNONE.L', 'Bolsa de Londres'],
-      ['EUONE.PA', 'Euronext París'],
-      ['BENCH:SP-TR', 'Índice de retorno total'],
-    ]);
-    // A stock sold long ago is not refreshed.
-    expect(plan.jobs.some((j) => j.kind === 'price' && j.symbol === 'OLD')).toBe(false);
+    expect(plan.uncovered.map((u) => u.symbol)).toEqual(['BENCH:OTHER']);
   });
 
-  it('without the Twelve Data key those series wait for it; sources without a key still run', () => {
-    const plan = refreshPlan(book(), TODAY, false);
-    expect(plan.jobs.map((j) => j.provider)).toEqual(['coingecko', 'coingecko', 'trm']);
-    expect(plan.uncovered.filter((u) => /clave/.test(u.reason)).map((u) => u.symbol)).toEqual(['USONE', 'EUR/USD']);
-  });
-
-  it('on a Sunday, after Friday is stored, stocks and forex are current; crypto and the TRM are not', () => {
+  it('on a Sunday, after Friday is stored, stocks and rates are current; crypto trades on weekends', () => {
     const d = book();
-    d.prices = d.prices.map((p) => ({ ...p, date: p.symbol === 'XRP-USD' || p.symbol === 'BENCH:BTC' ? p.date : '2025-07-04' }));
+    d.prices = d.prices.map((p) => ({ ...p, date: p.symbol === 'XRP-USD' || p.symbol === 'BENCH:BTC' ? '2025-07-04' : p.date === '2025-07-03' ? '2025-07-04' : p.date }));
     d.fx = d.fx.map((r) => ({ ...r, date: '2025-07-04' }));
-    const plan = refreshPlan(d, '2025-07-06', true);
-    expect(plan.jobs.map((j) => (j.kind === 'price' ? j.symbol : j.ccy))).toEqual(['COP']);
-    expect(plan.current).toBe(4);
+    const plan = refreshPlan(d, '2025-07-06');
+    expect(plan.jobs.map((j) => (j.kind === 'price' ? j.symbol : j.ccy))).toEqual(['XRP-USD', 'BENCH:BTC', 'COP']);
+    // A Monday with Friday stored is current; the Tuesday after is not.
+    expect(refreshPlan(d, '2025-07-07').jobs.some((j) => j.kind === 'price' && j.symbol === 'USONE')).toBe(false);
+    expect(refreshPlan(d, '2025-07-08').jobs.some((j) => j.kind === 'price' && j.symbol === 'USONE')).toBe(true);
   });
 
-  it('asks each API for the days after the last stored one', () => {
-    const [us, xrp, btc, trm, eur] = refreshPlan(book(), TODAY, true).jobs;
-    expect(jobUrl(us!, TODAY, 'k')).toBe('https://api.twelvedata.com/time_series?symbol=USONE&interval=1day&start_date=2025-07-04&end_date=2025-07-08&order=ASC&outputsize=5000&apikey=k');
-    expect(jobUrl(eur!, TODAY, 'k')).toContain('symbol=EUR%2FUSD');
-    expect(jobUrl(xrp!, TODAY, 'k')).toBe('https://api.coingecko.com/api/v3/coins/ripple/market_chart?vs_currency=usd&days=3&interval=daily');
-    expect(jobUrl(btc!, TODAY, 'k')).toContain('/coins/bitcoin/');
-    expect(decodeURIComponent(jobUrl(trm!, TODAY, 'k'))).toContain("vigenciadesde+>+'2025-07-04T00:00:00.000'");
+  it('asks the function for each Yahoo symbol once, from the earliest day any of its series needs', () => {
+    const d = book();
+    d.assets.push({ id: 'Q', name: 'QQQ ETF', ccy: 'USD', bucket: 'acciones_usd', pricing: 'market', symbol: 'QQQ' });
+    d.ledger.push(toStored({ ...tx('2025-01-03', 'usd', 'BUY', -100, { asset: 'Q', q: 1 }), id: 'q' }));
+    d.prices.push({ symbol: 'QQQ', date: '2025-07-03', close: '500', ccy: 'USD', source: 'yahoo' });
+    const jobs = refreshPlan(d, TODAY).jobs.filter((j) => j.provider === 'yahoo' && (j.yahoo === 'QQQ' || j.yahoo === 'XRP-USD'));
+    expect(jobs).toHaveLength(3);
+    expect(decodeURIComponent(quotesUrl('/api/quotes', jobs))).toBe('/api/quotes?s=XRP-USD@2025-07-06&s=QQQ@2025-07-02');
+  });
+
+  it('a symbol Yahoo would not accept is listed, not sent', () => {
+    const d = book();
+    d.assets[0] = { ...d.assets[0]!, symbol: 'us one' };
+    d.prices[0] = { ...d.prices[0]!, symbol: 'us one' };
+    expect(refreshPlan(d, TODAY).uncovered.map((u) => u.symbol)).toContain('us one');
   });
 });
 
 describe('runRefresh', () => {
   const reply = (body: unknown, status = 200) => ({ ok: status < 400, status, json: async () => body }) as Response;
 
-  it('paces Twelve Data to its per-minute limit, retries a rate limit once and keeps failures per series', async () => {
-    const plan = refreshPlan(book(), TODAY, true);
-    let clock = 0;
-    const waits: number[] = [];
-    const seen: string[] = [];
-    let limited = false;
+  it('asks the function a few symbols at a time; a failed call or a missing series stays with its own series', async () => {
+    const plan = refreshPlan(book(), TODAY);
+    const calls: string[] = [];
     const fetch = async (url: string | URL | Request) => {
-      const u = String(url);
-      seen.push(u);
-      if (u.includes('symbol=USONE')) return reply(td([{ datetime: '2025-07-07', close: '121' }]));
-      if (u.includes('EUR%2FUSD')) {
-        if (!limited) {
-          limited = true;
-          return reply({ code: 429, message: 'You have run out of API credits for the current minute.', status: 'error' }, 429);
-        }
-        return reply(td([{ datetime: '2025-07-07', close: '1.25' }]));
-      }
-      if (u.includes('ripple')) throw new TypeError('Failed to fetch');
-      if (u.includes('bitcoin')) return reply({ prices: [[Date.parse('2025-07-08T00:00:00Z'), 101000]] });
-      return reply([{ valor: '4050', unidad: 'COP', vigenciadesde: '2025-07-08T00:00:00.000', vigenciahasta: '2025-07-08T00:00:00.000' }]);
+      const u = decodeURIComponent(String(url));
+      calls.push(u);
+      if (u.startsWith('https://www.datos.gov.co/')) return reply([{ valor: '4050', unidad: 'COP', vigenciadesde: '2025-07-08T00:00:00.000', vigenciahasta: '2025-07-08T00:00:00.000' }]);
+      if (u.includes('XRP-USD')) return reply({ error: 'boom' }, 500);
+      return reply({
+        USONE: bars([['2025-07-07', 121]], { currency: 'USD' }),
+        'COONE.CL': { error: 'Yahoo Finance no tiene datos de COONE.CL (404).' },
+        // EUONE.PA left out of the reply
+        'BTC-USD': { currency: 'USD', timestamps: [at('2025-07-07', '00:00')], close: [101000] },
+        QQQ: bars([['2025-07-03', 500], ['2025-07-07', 505]], { currency: 'USD', adj: [490, 495] }),
+        'EURUSD=X': bars([['2025-07-07', 1.25]], { currency: 'USD' }),
+      });
     };
-    const res = await runRefresh(plan, {
-      key: 'k',
-      today: TODAY,
-      fetch: fetch as typeof globalThis.fetch,
-      perMinute: 1,
-      now: () => clock,
-      sleep: async (ms) => {
-        waits.push(ms);
-        clock += ms;
-      },
-    });
+    const res = await runRefresh(plan, { today: TODAY, fetch: fetch as typeof globalThis.fetch, batch: 3 });
+    expect(calls.map((c) => c.replace(/\?.*/, ''))).toEqual(['/api/quotes', '/api/quotes', '/api/quotes', 'https://www.datos.gov.co/resource/32sa-8pi3.json']);
     expect(res.map((r) => [r.job.kind === 'price' ? r.job.symbol : r.job.ccy, r.prices.length + r.fx.length, r.error ?? ''])).toEqual([
       ['USONE', 1, ''],
-      ['XRP-USD', 0, 'No se pudo conectar con CoinGecko (sin internet, o la fuente no acepta consultas desde el navegador).'],
-      ['BENCH:BTC', 1, ''],
+      ['COONE.CL', 0, 'Yahoo Finance no tiene datos de COONE.CL (404).'],
+      ['EUONE.PA', 0, 'El servicio de precios no devolvió esta serie.'],
+      ['XRP-USD', 0, 'boom'],
+      ['BENCH:BTC', 0, 'boom'],
+      ['BENCH:QQQ-TR', 0, 'boom'],
       ['COP', 1, ''],
       ['EUR', 1, ''],
     ]);
-    // One call a minute: EUR waits out the minute of USONE's call (at 0 s), then 61 s after its rate limit;
-    // by then that minute is over, so the retry goes straight out.
-    expect(waits).toEqual([60_500, 61_000]);
-    expect(seen.filter((u) => u.includes('EUR%2FUSD'))).toHaveLength(2);
+  });
+
+  it('without the function (opened elsewhere than the published site) it says where to use it', async () => {
+    const plan = refreshPlan(book(), TODAY);
+    const fetch = async (url: string | URL | Request) =>
+      String(url).startsWith('/api') ? reply('<html>Not found</html>', 404) : reply([]);
+    const res = await runRefresh(plan, { today: TODAY, fetch: fetch as typeof globalThis.fetch });
+    expect(res[0]!.error).toMatch(/versión publicada/);
   });
 });
 
-describe('limits and coverage edge cases', () => {
-  it('the daily Twelve Data limit is not retried; the per-minute one is', () => {
-    const daily = { code: 429, message: 'You have run out of API credits for the day. 800 API credits were used.', status: 'error' };
-    try {
-      parseTwelveDataSeries(daily, 'FAKE', 'USD', '2025-01-01', '2025-02-01');
-      expect.unreachable();
-    } catch (e) {
-      expect((e as QuoteError).retry).toBe(false);
-      expect((e as QuoteError).message).toMatch(/diarias/);
-    }
+describe('the /api/quotes function', () => {
+  const yahoo = (symbol: string) => ({
+    chart: { result: [{ meta: { currency: 'USD', symbol }, timestamp: [at('2025-07-07')], indicators: { quote: [{ close: [10] }], adjclose: [{ adjclose: [9.5] }] } }], error: null },
+  });
+  const noWait = async () => {};
+
+  it('relays each symbol from its date, one at a time, and retries a rate limit once', async () => {
+    const urls: string[] = [];
+    let limited = false;
+    const fetch = async (url: string | URL | Request) => {
+      urls.push(String(url));
+      if (String(url).includes('/BBB?') && !limited) {
+        limited = true;
+        return new Response('Too Many Requests', { status: 429 });
+      }
+      if (String(url).includes('/NOPE?')) return Response.json({ chart: { result: null, error: { description: 'No data found, symbol may be delisted' } } }, { status: 404 });
+      return Response.json(yahoo(decodeURIComponent(String(url).split('/chart/')[1]!.split('?')[0]!)));
+    };
+    const res = await handle(new Request('https://site/api/quotes?s=AAA@2025-07-03&s=BBB@2025-07-01&s=NOPE@2025-07-01&s=%5ESP500TR@2025-07-03'), fetch as typeof globalThis.fetch, noWait);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.AAA).toEqual({ currency: 'USD', timestamps: [at('2025-07-07')], close: [10], adjclose: [9.5] });
+    expect(body.BBB.close).toEqual([10]);
+    expect(body.NOPE).toEqual({ error: 'No data found, symbol may be delisted' });
+    expect(body['^SP500TR'].close).toEqual([10]);
+    expect(urls.filter((u) => u.includes('/BBB?'))).toHaveLength(2);
+    expect(urls[0]).toContain(`/chart/AAA?period1=${Date.parse('2025-07-03T00:00:00Z') / 1000}&`);
+    expect(urls[0]).toContain('includeAdjustedClose=true');
   });
 
-  it('a Monday with Friday stored is current; the Tuesday after is not', () => {
-    const d = book();
-    d.prices = d.prices.map((p) => (p.symbol === 'USONE' ? { ...p, date: '2025-07-04' } : p));
-    const due = (today: string) => refreshPlan(d, today, true).jobs.some((j) => j.kind === 'price' && j.symbol === 'USONE');
-    expect(due('2025-07-07')).toBe(false);
-    expect(due('2025-07-08')).toBe(true);
+  it('passes on the exchange time zone and the splits', async () => {
+    const fetch = (async () =>
+      Response.json({
+        chart: { result: [{ meta: { currency: 'EUR', exchangeTimezoneName: 'Europe/Paris' }, events: { splits: { '1': { date: 1751876400, numerator: 2, denominator: 1 } } }, timestamp: [1751876400], indicators: { quote: [{ close: [5] }] } }] },
+      })) as typeof globalThis.fetch;
+    const body = await (await handle(new Request('https://site/api/quotes?s=FAKE.PA@2025-07-01'), fetch, noWait)).json();
+    expect(body['FAKE.PA']).toEqual({ currency: 'EUR', timezone: 'Europe/Paris', splits: [1751876400], timestamps: [1751876400], close: [5] });
   });
 
-  it('CoinGecko only serves a year: an older gap says what is missing', async () => {
-    const d = book();
-    d.prices = d.prices.map((p) => (p.symbol === 'XRP-USD' ? { ...p, date: '2024-01-01' } : p));
-    const plan = refreshPlan(d, TODAY, false);
-    const xrp = plan.jobs.find((j) => j.kind === 'price' && j.symbol === 'XRP-USD')!;
-    expect(jobUrl(xrp, TODAY, '')).toContain('days=365');
-    const res = await runRefresh(
-      { ...plan, jobs: [xrp] },
-      { key: '', today: TODAY, fetch: (async () => ({ ok: true, status: 200, json: async () => ({ prices: [[Date.parse('2024-07-09T00:00:00Z'), 0.5], [Date.parse('2024-07-10T00:00:00Z'), 0.51]] }) })) as unknown as typeof fetch },
-    );
-    expect(res[0]!.prices.map((p) => p.date)).toEqual(['2024-07-08', '2024-07-09']);
-    expect(res[0]!.note).toBe('CoinGecko solo da el último año: faltan los días del 2024-01-02 al 2024-07-07.');
-  });
-
-  it('a crypto quoted in another currency, an unknown coin and a coin index with no series are listed, not guessed', () => {
-    const d = book();
-    d.assets.push({ id: 'X1', name: 'XRP en COP', ccy: 'COP', bucket: 'cripto', pricing: 'market', symbol: 'ETH-USD' });
-    d.assets.push({ id: 'X2', name: 'Moneda rara', ccy: 'USD', bucket: 'cripto', pricing: 'market', symbol: 'RARE-USD' });
-    d.ledger.push(toStored({ ...tx('2025-01-03', 'usd', 'BUY', -10, { asset: 'X2', q: 1 }), id: 'x2' }), toStored({ ...tx('2025-01-03', 'cop', 'BUY', -10, { asset: 'X1', q: 1, ccy: 'COP' }), id: 'x1' }));
-    d.prices = d.prices.filter((p) => p.symbol !== 'BENCH:BTC');
-    const reasons = Object.fromEntries(refreshPlan(d, TODAY, true).uncovered.map((u) => [u.symbol, u.reason]));
-    expect(reasons['ETH-USD']).toMatch(/en USD y el activo cotiza en COP/);
-    expect(reasons['RARE-USD']).toMatch(/no sabe buscar en CoinGecko/);
-    expect(reasons['BENCH:BTC']).toMatch(/ninguna serie guardada/);
-  });
-
-  it('a CoinGecko rate limit is retried once after a minute', async () => {
-    const plan = refreshPlan(book(), TODAY, false);
-    const btc = plan.jobs.find((j) => j.kind === 'price' && j.symbol === 'BENCH:BTC')!;
-    let calls = 0;
-    const waits: number[] = [];
-    const res = await runRefresh(
-      { ...plan, jobs: [btc] },
-      {
-        key: '',
-        today: TODAY,
-        sleep: async (ms) => void waits.push(ms),
-        fetch: (async () => {
-          calls++;
-          const body = calls === 1 ? { status: { error_code: 429, error_message: 'rate limit' } } : { prices: [[Date.parse('2025-07-08T00:00:00Z'), 101000]] };
-          return { ok: calls > 1, status: calls === 1 ? 429 : 200, json: async () => body };
-        }) as unknown as typeof fetch,
-      },
-    );
-    expect(calls).toBe(2);
-    expect(waits).toEqual([61_000]);
-    expect(res[0]!.prices.map((p) => p.date)).toEqual(['2025-07-07']);
+  it('only relays well-formed symbols (a bad one fails alone), by GET, for the app itself', async () => {
+    const never = (async () => {
+      throw new Error('should not fetch');
+    }) as typeof globalThis.fetch;
+    const bad = await (await handle(new Request('https://site/api/quotes?s=https://evil@2025-07-03&s=AAA@yesterday'), never, noWait)).json();
+    expect(Object.values(bad)).toEqual([{ error: 'Símbolo o fecha inválidos: https://evil@2025-07-03' }, { error: 'Símbolo o fecha inválidos: AAA@yesterday' }]);
+    const other = new Request('https://site/api/quotes?s=AAA@2025-07-03', { headers: { 'sec-fetch-site': 'cross-site' } });
+    expect((await handle(other, never, noWait)).status).toBe(403);
+    expect((await handle(new Request('https://site/api/quotes'), never, noWait)).status).toBe(400);
+    const many = Array.from({ length: 11 }, (_, i) => `s=S${i}@2025-07-03`).join('&');
+    expect((await handle(new Request(`https://site/api/quotes?${many}`), never, noWait)).status).toBe(400);
+    expect((await handle(new Request('https://site/api/quotes?s=AAA@2025-07-03', { method: 'POST' }), never, noWait)).status).toBe(405);
   });
 });
 
@@ -308,10 +315,10 @@ describe('applyRefresh', () => {
       [
         ok({
           prices: [
-            { symbol: 'USONE', date: '2025-07-03', close: '999', ccy: 'USD', source: 'twelvedata' }, // already stored: never replaced
-            { symbol: 'USONE', date: '2025-07-07', close: '121', ccy: 'USD', source: 'twelvedata' },
-            { symbol: 'USONE', date: '2025-07-08', close: '400', ccy: 'USD', source: 'twelvedata' }, // jump: added, flagged
-            { symbol: 'XRP-USD', date: '2025-07-07', close: '2.3', ccy: 'EUR', source: 'coingecko' }, // wrong currency: left out
+            { symbol: 'USONE', date: '2025-07-03', close: '999', ccy: 'USD', source: 'yahoo' }, // already stored: never replaced
+            { symbol: 'USONE', date: '2025-07-07', close: '121', ccy: 'USD', source: 'yahoo' },
+            { symbol: 'USONE', date: '2025-07-08', close: '400', ccy: 'USD', source: 'yahoo' }, // jump: added, flagged
+            { symbol: 'XRP-USD', date: '2025-07-07', close: '2.3', ccy: 'EUR', source: 'yahoo' }, // wrong currency: left out
           ],
           fx: [{ ccy: 'COP', date: '2025-07-08', perUsd: '4050', source: 'datos.gov.co 32sa-8pi3' }],
         }),
@@ -324,11 +331,10 @@ describe('applyRefresh', () => {
     expect(r.rejected.map((f) => f.code)).toEqual(['CCY']);
     expect(r.warnings.map((f) => f.code)).toEqual(['JUMP']);
     expect(r.next.prices.find((p) => p.symbol === 'USONE' && p.date === '2025-07-03')!.close).toBe('120');
-    expect(r.next.prices.filter((p) => p.symbol === 'USONE').map((p) => p.date)).toEqual(['2025-07-03', '2025-07-07', '2025-07-08']);
   });
 
   it('a series stops at its first rejected row, so the gap is asked for again next time', () => {
-    const row = (date: string, close: string) => ({ symbol: 'USONE', date, close, ccy: 'USD', source: 'twelvedata' });
+    const row = (date: string, close: string) => ({ symbol: 'USONE', date, close, ccy: 'USD', source: 'yahoo' });
     const r = applyRefresh(book(), [ok({ prices: [row('2025-07-04', '121'), row('2025-07-07', '0'), row('2025-07-08', '122')] })], TODAY);
     expect(r.next.prices.filter((p) => p.symbol === 'USONE').map((p) => p.date)).toEqual(['2025-07-03', '2025-07-04']);
     expect(r.added).toEqual([{ count: 1, last: '2025-07-04' }]);

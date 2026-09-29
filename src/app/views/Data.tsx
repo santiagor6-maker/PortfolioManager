@@ -118,7 +118,7 @@ export function DataView() {
             </tbody>
           </table>
         </div>
-        <p class="small muted" style="margin-top:8px">Los precios se actualizan con «Actualizar precios» (arriba) o importando un archivo de precios.</p>
+        <p class="small muted" style="margin-top:8px">Los precios se actualizan con «Traer precios del cierre» (arriba) o importando un archivo de precios.</p>
       </div>
 
       <div class="card">

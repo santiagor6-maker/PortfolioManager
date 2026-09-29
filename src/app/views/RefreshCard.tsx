@@ -2,17 +2,12 @@ import { useEffect, useMemo, useState } from 'preact/hooks';
 import { date, today } from '../format.ts';
 import { PROVIDER_LABELS, applyRefresh, jobLabel, refreshPlan, runRefresh } from '../refresh.ts';
 import type { Applied, JobResult, RefreshPlan } from '../refresh.ts';
-import { getDataset, kvGet, kvSet, setDataset, useDataset } from '../store.ts';
-
-/** The Twelve Data key stays in this browser only: not in the dataset, the backups or the cloud copy. */
-const KEY = 'quotes:twelvedata';
-const PER_MINUTE = 8;
+import { getDataset, setDataset, useDataset } from '../store.ts';
 
 interface Progress {
   done: number;
   total: number;
   label: string;
-  waiting: boolean;
 }
 
 /** One run for the page: the card in Datos and the one in Cierre show the same run, and a second cannot start. */
@@ -39,16 +34,11 @@ function useRun(): Run {
   return run;
 }
 
-async function start(plan: RefreshPlan, key: string | undefined) {
+async function start(plan: RefreshPlan) {
   if (run.progress) return;
-  setRun({ progress: { done: 0, total: plan.jobs.length, label: '', waiting: false } });
+  setRun({ progress: { done: 0, total: plan.jobs.length, label: '' } });
   try {
-    const results = await runRefresh(plan, {
-      key: key ?? '',
-      today: today(),
-      perMinute: PER_MINUTE,
-      onProgress: (done, total, label, waiting) => setRun({ progress: { done, total, label, waiting } }),
-    });
+    const results = await runRefresh(plan, { today: today(), onProgress: (done, total, label) => setRun({ progress: { done, total, label } }) });
     const applied = applyRefresh(getDataset(), results, today());
     if (applied.next !== getDataset()) await setDataset(applied.next);
     setRun({ done: { results, applied } });
@@ -57,93 +47,25 @@ async function start(plan: RefreshPlan, key: string | undefined) {
   }
 }
 
-/** "Actualizar precios": downloads the missing days of every series a free source covers, and says what stays manual. */
+/** The quote function lives on the published site; a copy opened from disk cannot reach it. */
+const published = () => location.protocol.startsWith('http');
+
+/** «Traer precios del cierre»: the missing closes of every series in use, from the sources of the stored history. */
 export function RefreshCard({ compact = false }: { compact?: boolean }) {
   const { data } = useDataset();
-  const [key, setKey] = useState<string>();
-  const [draft, setDraft] = useState('');
-  const [editing, setEditing] = useState(false);
   const { progress, done, error } = useRun();
-
-  useEffect(() => {
-    kvGet<string>(KEY)
-      .then((k) => setKey(k || undefined))
-      .catch(() => undefined);
-  }, []);
-
-  const plan = useMemo(() => refreshPlan(data, today(), Boolean(key)), [data, key]);
-  const td = plan.jobs.filter((j) => j.provider === 'twelvedata').length;
-  const minutes = Math.ceil(td / PER_MINUTE) - 1;
+  const plan = useMemo(() => refreshPlan(data, today()), [data]);
   const running = progress !== undefined;
+  const n = plan.jobs.length;
 
-  async function saveKey(e: Event) {
-    e.preventDefault();
-    const k = draft.trim();
-    if (!k) return;
-    await kvSet(KEY, k);
-    setKey(k);
-    setDraft('');
-    setEditing(false);
-  }
-
-  async function removeKey() {
-    await kvSet(KEY, undefined);
-    setKey(undefined);
-  }
-
-  const byProvider = (['twelvedata', 'coingecko', 'trm'] as const)
-    .map((p) => [p, plan.jobs.filter((j) => j.provider === p).length] as const)
-    .filter(([, n]) => n > 0)
-    .map(([p, n]) => `${n} de ${PROVIDER_LABELS[p]}`);
-
-  const body = (
+  const body = published() ? (
     <>
-      {!key || editing ? (
-        <form class="actions refresh-key" onSubmit={saveKey}>
-          <label class="field">
-            Clave de Twelve Data
-            <input type="password" autocomplete="off" spellcheck={false} value={draft} onInput={(e) => setDraft((e.target as HTMLInputElement).value)} />
-          </label>
-          <button disabled={!draft.trim()}>Guardar clave</button>
-          {editing && (
-            <button type="button" class="link" onClick={() => setEditing(false)}>
-              Cancelar
-            </button>
-          )}
-          <p class="small muted">
-            Para las acciones de EE. UU. y las tasas del euro y otras monedas. Es gratis: crea una cuenta en{' '}
-            <a href="https://twelvedata.com/register" target="_blank" rel="noopener noreferrer">
-              twelvedata.com
-            </a>{' '}
-            y copia la clave de «API Keys». Se guarda solo en este navegador. Sin ella se actualizan igual la TRM y las criptomonedas.
-          </p>
-        </form>
-      ) : (
-        <p class="small muted">
-          Clave de Twelve Data guardada en este navegador.{' '}
-          <button type="button" class="link" onClick={() => setEditing(true)}>
-            Cambiar
-          </button>{' '}
-          ·{' '}
-          <button type="button" class="link" onClick={removeKey}>
-            Quitar
-          </button>
-        </p>
-      )}
-
       <div class="actions">
-        <button class="primary" disabled={running || plan.jobs.length === 0} onClick={() => void start(plan, key)}>
-          {running ? 'Actualizando…' : 'Actualizar precios'}
+        <button class="primary" disabled={running || n === 0} onClick={() => void start(plan)}>
+          {running ? 'Trayendo precios…' : 'Traer precios del cierre'}
         </button>
-        <span class="small muted">
-          {plan.jobs.length === 0
-            ? plan.current > 0
-              ? 'Todo lo que se puede descargar ya está al día.'
-              : 'No hay series para descargar.'
-            : `Por actualizar: ${byProvider.join(', ')}.${minutes > 0 ? ` Tarda unos ${minutes + 1} minutos: el plan gratis de Twelve Data permite ${PER_MINUTE} consultas por minuto.` : ''}`}
-        </span>
+        <span class="small muted">{n === 0 ? 'Todo está al día.' : n === 1 ? 'Falta actualizar 1 serie.' : `Faltan por actualizar ${n} series.`}</span>
       </div>
-
       {progress && (
         <div class="refresh-progress" role="status">
           <div class="progress">
@@ -154,10 +76,7 @@ export function RefreshCard({ compact = false }: { compact?: boolean }) {
               {progress.done} de {progress.total}
             </span>
           </div>
-          <span class="small muted">
-            {progress.waiting ? `Esperando el límite de Twelve Data (${PER_MINUTE} por minuto)… ` : 'Descargando '}
-            {progress.label}
-          </span>
+          <span class="small muted">{progress.label}</span>
         </div>
       )}
       {error && (
@@ -166,48 +85,57 @@ export function RefreshCard({ compact = false }: { compact?: boolean }) {
         </div>
       )}
       {done && <Result {...done} />}
-
-      {plan.uncovered.length > 0 && (
-        <details class="small" style="margin-top:10px">
-          <summary>
-            {plan.uncovered.length === 1 ? '1 serie sin fuente automática' : `${plan.uncovered.length} series sin fuente automática`}
-          </summary>
-          <ul>
-            {plan.uncovered.map((u) => (
-              <li>
-                {u.name === u.symbol ? u.symbol : `${u.name} (${u.symbol})`}: {u.reason}
-              </li>
-            ))}
-          </ul>
-          <p class="muted">Estas siguen como hoy: pídele a Claude el cierre del mes o importa un archivo de precios en Datos.</p>
-        </details>
-      )}
     </>
+  ) : (
+    <p class="small muted">Este botón funciona en la versión publicada de la app (portfoliomanager-sr.netlify.app), no en el archivo abierto desde el computador.</p>
   );
 
-  if (compact) return <div class="refresh-card compact">{body}</div>;
+  const extra = plan.uncovered.length > 0 && (
+    <details class="small" style="margin-top:10px">
+      <summary>{plan.uncovered.length === 1 ? '1 serie no se puede traer sola' : `${plan.uncovered.length} series no se pueden traer solas`}</summary>
+      <ul>
+        {plan.uncovered.map((u) => (
+          <li>
+            {u.name === u.symbol ? u.symbol : `${u.name} (${u.symbol})`}: {u.reason}
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+
+  if (compact)
+    return (
+      <div class="refresh-card compact">
+        {body}
+        {extra}
+      </div>
+    );
   return (
     <div class="card refresh-card">
-      <h2>Actualizar precios</h2>
+      <h2>Precios del cierre</h2>
       <p class="small muted">
-        Descarga los cierres que faltan desde el último guardado: acciones y ETF de EE. UU. y tasas (Twelve Data), la TRM oficial (datos.gov.co) y criptomonedas (CoinGecko). Solo agrega días
-        nuevos: nunca reemplaza un precio guardado, y cada precio queda con su fuente y su fecha.
+        Trae los cierres que faltan desde el último guardado, de las mismas fuentes de tu historial: Yahoo Finance para acciones, ETF, cripto, índices y tasas, y la TRM oficial
+        (datos.gov.co). Solo agrega días nuevos: nunca cambia un precio guardado.
       </p>
       {body}
+      {extra}
     </div>
   );
 }
 
 function Result({ results, applied }: { results: JobResult[]; applied: Applied }) {
   const failed = results.filter((r) => r.error);
+  const latest = applied.added.reduce<string | undefined>((x, a) => (a.last && (!x || a.last > x) ? a.last : x), undefined);
   return (
     <>
       <div class={`notice ${failed.length ? 'warn' : 'info'}`} role="status">
         {applied.prices + applied.fx === 0
           ? 'No había días nuevos para agregar.'
-          : `Se agregaron ${applied.prices} ${applied.prices === 1 ? 'precio' : 'precios'} y ${applied.fx} ${applied.fx === 1 ? 'tasa' : 'tasas'}.`}
-        {failed.length > 0 && ` ${failed.length === 1 ? '1 serie falló' : `${failed.length} series fallaron`}: quedan como estaban.`}
+          : `Se agregaron ${applied.prices} ${applied.prices === 1 ? 'precio' : 'precios'} y ${applied.fx} ${applied.fx === 1 ? 'tasa' : 'tasas'}${latest ? `, hasta el ${date(latest)}` : ''}.`}
+        {failed.length > 0 && ` ${failed.length === 1 ? '1 serie falló' : `${failed.length} series fallaron`} y queda${failed.length === 1 ? '' : 'n'} como estaba${failed.length === 1 ? '' : 'n'}: ${failed.map((r) => jobLabel(r.job)).join(', ')}.`}
       </div>
+      <details class="small">
+      <summary>Ver el detalle por serie</summary>
       <div class="table-wrap">
         <table class="compact">
           <thead>
@@ -226,13 +154,13 @@ function Result({ results, applied }: { results: JobResult[]; applied: Applied }
                 <td class="n">{r.error ? '' : applied.added[i]!.count}</td>
                 <td class="small">
                   {r.error ? <span class="bad">{r.error}</span> : applied.added[i]!.last ? date(applied.added[i]!.last) : 'sin días nuevos'}
-                  {r.note && <div class="muted">{r.note}</div>}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      </details>
       {applied.rejected.length > 0 && (
         <div class="notice err small">
           No se agregaron por no pasar las revisiones:

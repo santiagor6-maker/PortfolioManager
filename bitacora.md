@@ -11,11 +11,12 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
 - Plan acordado:
   1. Netlify.
   2. Supabase con datos cifrados en el navegador.
-  3. Precios automáticos (Twelve Data, TRM y cripto): hecho.
+  3. Precios del cierre automáticos (Yahoo + TRM): hecho.
   4. Fundamentales mensuales desde SEC EDGAR al abrir la app.
 - Netlify `portfoliomanager-sr` publica esta rama en cada push.
 - Supabase `portfoliomanager` (us-east-1, gratis): el login con enlace funciona, pero la primera copia la creó el celular vacío y el computador no quedó vinculado. El usuario lo pospuso ("muy complejo"); retomar simplificando el primer uso.
-- «Actualizar precios» (etapa 3) publicado; falta que el usuario pegue su clave de Twelve Data y lo pruebe con sus datos.
+- «Traer precios del cierre» (etapa 3) con Yahoo vía la función `/api/quotes` de Netlify y la TRM oficial: falta la primera prueba del usuario en el sitio (riesgo: que Yahoo limite las IP de Netlify).
+- Decisión pendiente: el historial tiene las tasas EUR/CAD de horario de verano británico fechadas un día antes (mismo valor, fecha −1); se corrige en los datos si el usuario quiere.
 - Pendiente del usuario:
   - valores manuales de jul–sep 2026; el cierre de julio 2026 solo espera esto;
   - certificado de dividendos COP;
@@ -25,6 +26,11 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
 - Mejora anotada: el aviso de TRM del Cierre nombra el primer mes pendiente, no el mes que se está cerrando.
 
 ## Registro
+
+**2026-09-29 — Precios del cierre desde Yahoo**
+- El usuario solo necesita cierres de mes y preguntó cómo se validaron antes Colombia, Londres y París: el historial viene de Yahoo. Se reemplazan Twelve Data y CoinGecko por Yahoo vía la función `netlify/functions/quotes.mts`, sin clave; la TRM sigue oficial.
+- Verificado en vivo con los símbolos reales: 361/361 cierres de acciones, cripto e índices idénticos a lo guardado. Las tasas EUR/CAD coinciden en valor, pero el historial las tiene un día antes en verano; las nuevas quedan con la fecha correcta.
+- `finance-reviewer`: dos pasadas. Corregidos la sesión abierta, los splits, los símbolos compartidos, el dividendo tardío en índices encadenados, la validación y la función solo para la app. 192 unit + 33 e2e.
 
 **2026-09-29 — Actualizar precios**
 - Botón en Datos y en el paso 2 del Cierre: acciones y ETF de EE. UU. y tasas EUR/CAD (Twelve Data, clave guardada solo en el navegador), TRM oficial (datos.gov.co, mismo formato que la serie guardada: verificado) y XRP/BTC (CoinGecko).

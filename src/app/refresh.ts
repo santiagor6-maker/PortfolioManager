@@ -1,20 +1,33 @@
-import { addDays, daysBetween } from '../domain/dates.ts';
+import { addDays } from '../domain/dates.ts';
 import type { IsoDate } from '../domain/dates.ts';
 import { holdingsAt } from '../domain/holdings.ts';
 import type { Dataset, StoredPrice, StoredRate } from '../data/json.ts';
-import { COINGECKO_IDS, QuoteError, fxPair, parseCoinGecko, parseTrm, parseTwelveDataFx, parseTwelveDataSeries } from '../data/quotes.ts';
+import { QuoteError, YAHOO_SYMBOL, parseTrm, parseYahooAdjusted, parseYahooCloses, parseYahooFx, yahooFxSymbol } from '../data/quotes.ts';
 import { checkFxRows, checkPriceRows, fxStatus } from './checks.ts';
 import type { Finding } from './checks.ts';
 import { contextOf, coverage } from './context.ts';
 
 /**
- * "Actualizar precios": which series the app can download by itself, from where, and what stays manual.
- * Only days after the last stored one are fetched and added; nothing already stored is replaced.
+ * «Traer precios del cierre»: every series in use, from the same sources as the stored history — Yahoo
+ * Finance (through the site's /api/quotes function) for stocks, ETFs, crypto, indices and exchange rates,
+ * and the official TRM for COP. Only days after the last stored one are added; nothing stored is replaced.
  */
 
 export type Job =
-  | { kind: 'price'; provider: 'twelvedata' | 'coingecko'; symbol: string; name: string; ccy: string; after: IsoDate }
-  | { kind: 'fx'; provider: 'twelvedata' | 'trm'; ccy: string; after: IsoDate };
+  | {
+      kind: 'price';
+      provider: 'yahoo';
+      symbol: string;
+      yahoo: string;
+      name: string;
+      ccy: string;
+      after: IsoDate;
+      /** Chained series (an ETF's adjusted close): the last stored level, and the stored days just before it to check against. */
+      anchor?: string;
+      overlap?: { date: IsoDate; close: string }[];
+    }
+  | { kind: 'fx'; provider: 'yahoo'; ccy: string; yahoo: string; after: IsoDate }
+  | { kind: 'fx'; provider: 'trm'; ccy: 'COP'; after: IsoDate };
 
 export interface Uncovered {
   symbol: string;
@@ -24,29 +37,26 @@ export interface Uncovered {
 
 export interface RefreshPlan {
   jobs: Job[];
-  /** Series in use that no automatic source covers (or that need the Twelve Data key). */
+  /** Series in use that no automatic source covers, with why. */
   uncovered: Uncovered[];
   /** Series already up to date. */
   current: number;
 }
 
-const EXCHANGES: [RegExp, string][] = [
-  [/\.CL$/, 'Bolsa de Colombia'],
-  [/\.L$/, 'Bolsa de Londres'],
-  [/\.PA$/, 'Euronext París'],
-  [/\.(DE|F)$/, 'Bolsa de Alemania'],
-  [/\.TO$/, 'Bolsa de Toronto'],
-  [/\.HK$/, 'Bolsa de Hong Kong'],
-  [/\.OL$/, 'Bolsa de Oslo'],
-  [/\.AS$/, 'Euronext Ámsterdam'],
-  [/\.MC$/, 'Bolsa de Madrid'],
-];
+/**
+ * The benchmark series the app keeps, and how each was built from Yahoo: a total-return index by its close,
+ * or an ETF's adjusted close (dividends reinvested), chained onto the stored level.
+ */
+export const BENCHMARK_SOURCES: Record<string, { yahoo: string; adjusted?: boolean }> = {
+  'BENCH:SP500TR': { yahoo: '^SP500TR' },
+  'BENCH:QQQ-TR': { yahoo: 'QQQ', adjusted: true },
+  'BENCH:URTH-TR': { yahoo: 'URTH', adjusted: true },
+  'BENCH:ICOLCAP-TR': { yahoo: 'ICOLCAP.CL', adjusted: true },
+  'BENCH:BTC': { yahoo: 'BTC-USD' },
+};
 
-const NEEDS_KEY = 'Falta la clave de Twelve Data (gratis): pégala arriba.';
-const NOT_FREE = 'el plan gratis de Twelve Data solo cubre EE. UU.';
-
-/** Symbols that name a benchmark series the app can refresh (a price index with no dividends to reinvest). */
-const BENCHMARK_COINS: Record<string, string> = { 'BENCH:BTC': 'BTC-USD' };
+/** Calendar days of stored history a chained series is checked against before new days are added. */
+const OVERLAP_DAYS = 14;
 
 /** A weekday strictly between `after` and `today`: a completed trading day that may not be stored yet. */
 function tradingDayBetween(after: IsoDate, today: IsoDate): boolean {
@@ -57,7 +67,10 @@ function tradingDayBetween(after: IsoDate, today: IsoDate): boolean {
   return false;
 }
 
-export function refreshPlan(d: Dataset, today: IsoDate, hasKey: boolean): RefreshPlan {
+/** Crypto trades every day; everything else only on weekdays. */
+const due = (yahoo: string, after: IsoDate, today: IsoDate) => (/-USD$/.test(yahoo) ? after < addDays(today, -1) : tradingDayBetween(after, today));
+
+export function refreshPlan(d: Dataset, today: IsoDate): RefreshPlan {
   const ctx = contextOf(d);
   const cov = coverage(d);
   const jobs: Job[] = [];
@@ -68,185 +81,158 @@ export function refreshPlan(d: Dataset, today: IsoDate, hasKey: boolean): Refres
   try {
     openAssets = new Set([...holdingsAt(ctx.ledger, today).positions.values()].filter((p) => p.open).map((p) => p.asset));
   } catch {
-    /* an impossible ledger is reported elsewhere; refresh only what has a stored series */
+    /* an impossible ledger is reported elsewhere; refresh only what is still clearly in use */
   }
-  const firstTx = new Map<string, IsoDate>();
   const lastTx = new Map<string, IsoDate>();
-  for (const t of ctx.ledger) {
-    if (!t.asset) continue;
-    if (!firstTx.has(t.asset) || t.date < firstTx.get(t.asset)!) firstTx.set(t.asset, t.date);
-    if (!lastTx.has(t.asset) || t.date > lastTx.get(t.asset)!) lastTx.set(t.asset, t.date);
-  }
+  for (const t of ctx.ledger) if (t.asset && (!lastTx.has(t.asset) || t.date > lastTx.get(t.asset)!)) lastTx.set(t.asset, t.date);
+  const lastRow = new Map<string, StoredPrice>();
+  for (const p of d.prices) if (!lastRow.has(p.symbol) || p.date > lastRow.get(p.symbol)!.date) lastRow.set(p.symbol, p);
 
   const seen = new Set<string>();
-  const addPrice = (symbol: string, name: string, ccy: string, after: IsoDate | undefined, coin: string | undefined) => {
-    if (seen.has(symbol) || !after) return;
-    seen.add(symbol);
-    if (coin) {
-      if (after >= addDays(today, -1)) current++;
-      else jobs.push({ kind: 'price', provider: 'coingecko', symbol, name, ccy, after });
-      return;
-    }
-    if (ccy === 'USD' && /^[A-Z]{1,5}$/.test(symbol)) {
-      if (!tradingDayBetween(after, today)) current++;
-      else if (!hasKey) uncovered.push({ symbol, name, reason: NEEDS_KEY });
-      else jobs.push({ kind: 'price', provider: 'twelvedata', symbol, name, ccy, after });
-      return;
-    }
-    if (/-USD$/.test(symbol)) {
-      uncovered.push({ symbol, name, reason: 'Criptomoneda que la app todavía no sabe buscar en CoinGecko' });
-      return;
-    }
-    const where = EXCHANGES.find(([re]) => re.test(symbol))?.[1] ?? 'Bolsa fuera de EE. UU.';
-    uncovered.push({ symbol, name, reason: `${where}: ${NOT_FREE}` });
-  };
-
   for (const a of d.assets) {
-    if (a.pricing !== 'market' || !a.symbol) continue;
+    if (a.pricing !== 'market' || !a.symbol || seen.has(a.symbol)) continue;
     const last = cov.prices.get(a.symbol);
     // In use: still held, or traded after its last stored price.
     if (!openAssets.has(a.id) && !(lastTx.get(a.id) && (!last || lastTx.get(a.id)! > last))) continue;
-    const coin = COINGECKO_IDS[a.symbol];
-    if (coin && a.ccy !== 'USD') {
-      uncovered.push({ symbol: a.symbol, name: a.name, reason: `CoinGecko da el precio en USD y el activo cotiza en ${a.ccy}` });
-      continue;
-    }
-    addPrice(a.symbol, a.name, a.ccy, last ?? (firstTx.get(a.id) ? addDays(firstTx.get(a.id)!, -1) : undefined), coin);
+    seen.add(a.symbol);
+    if (!YAHOO_SYMBOL.test(a.symbol)) uncovered.push({ symbol: a.symbol, name: a.name, reason: 'Símbolo con un formato que Yahoo Finance no usa' });
+    else if (!last) uncovered.push({ symbol: a.symbol, name: a.name, reason: 'No hay ningún precio guardado para empezar: impórtalo en Datos' });
+    else if (!due(a.symbol, last, today)) current++;
+    else jobs.push({ kind: 'price', provider: 'yahoo', symbol: a.symbol, yahoo: a.symbol, name: a.name, ccy: a.ccy, after: last });
   }
   for (const b of d.benchmarks) {
-    const coin = BENCHMARK_COINS[b.symbol];
-    const last = cov.prices.get(b.symbol);
-    if (coin && last) addPrice(b.symbol, b.name, 'USD', last, COINGECKO_IDS[coin]);
-    else if (coin) uncovered.push({ symbol: b.symbol, name: b.name, reason: 'No hay ninguna serie guardada para empezar: impórtala en Datos' });
-    else uncovered.push({ symbol: b.symbol, name: b.name, reason: 'Índice de retorno total: no hay fuente gratuita automática' });
+    const src = BENCHMARK_SOURCES[b.symbol];
+    const last = lastRow.get(b.symbol);
+    if (!src) uncovered.push({ symbol: b.symbol, name: b.name, reason: 'La app no sabe de dónde sale este índice' });
+    else if (!last) uncovered.push({ symbol: b.symbol, name: b.name, reason: 'No hay ningún valor guardado para empezar: impórtalo en Datos' });
+    else if (!due(src.yahoo, last.date, today)) current++;
+    else {
+      const overlap = src.adjusted
+        ? d.prices.filter((p) => p.symbol === b.symbol && p.date < last.date && p.date >= addDays(last.date, -OVERLAP_DAYS)).map((p) => ({ date: p.date, close: p.close }))
+        : [];
+      jobs.push({ kind: 'price', provider: 'yahoo', symbol: b.symbol, yahoo: src.yahoo, name: b.name, ccy: last.ccy, after: last.date, ...(src.adjusted ? { anchor: last.close, overlap } : {}) });
+    }
   }
-
   for (const r of fxStatus(d, ctx, today)) {
     const last = cov.fx.get(r.ccy);
-    if (!last) {
-      uncovered.push({ symbol: `${r.ccy}/USD`, name: `Tasa ${r.ccy}`, reason: 'No hay ninguna tasa guardada para empezar: impórtalas en Datos' });
-    } else if (r.ccy === 'COP') {
+    if (!last) uncovered.push({ symbol: `${r.ccy}/USD`, name: `Tasa ${r.ccy}`, reason: 'No hay ninguna tasa guardada para empezar: impórtalas en Datos' });
+    else if (r.ccy === 'COP') {
       if (last >= today) current++;
       else jobs.push({ kind: 'fx', provider: 'trm', ccy: 'COP', after: last });
     } else if (!tradingDayBetween(last, today)) current++;
-    else if (!hasKey) uncovered.push({ symbol: `${r.ccy}/USD`, name: `Tasa ${r.ccy}`, reason: NEEDS_KEY });
-    else jobs.push({ kind: 'fx', provider: 'twelvedata', ccy: r.ccy, after: last });
+    else jobs.push({ kind: 'fx', provider: 'yahoo', ccy: r.ccy, yahoo: yahooFxSymbol(r.ccy), after: last });
   }
   return { jobs, uncovered, current };
 }
 
 export function jobLabel(j: Job): string {
   if (j.kind === 'price') return j.name === j.symbol ? j.symbol : `${j.name} (${j.symbol})`;
-  return j.provider === 'trm' ? 'TRM (COP)' : `Tasa ${fxPair(j.ccy).pair}`;
+  return j.provider === 'trm' ? 'TRM (COP)' : `Tasa ${j.ccy}/USD`;
 }
 
-export const PROVIDER_LABELS: Record<Job['provider'], string> = { twelvedata: 'Twelve Data', coingecko: 'CoinGecko', trm: 'datos.gov.co (TRM oficial)' };
-
-/** CoinGecko's free API serves at most this many days of daily history. */
-const COINGECKO_MAX_DAYS = 365;
-
-export function jobUrl(j: Job, today: IsoDate, key: string): string {
-  const from = addDays(j.after, 1);
-  if (j.provider === 'twelvedata') {
-    const symbol = j.kind === 'price' ? j.symbol : fxPair(j.ccy).pair;
-    const q = new URLSearchParams({ symbol, interval: '1day', start_date: from, end_date: today, order: 'ASC', outputsize: '5000', apikey: key });
-    return `https://api.twelvedata.com/time_series?${q}`;
-  }
-  if (j.provider === 'trm') {
-    const q = new URLSearchParams({ $where: `vigenciadesde > '${j.after}T00:00:00.000'`, $order: 'vigenciadesde', $limit: '5000' });
-    return `https://www.datos.gov.co/resource/32sa-8pi3.json?${q}`;
-  }
-  const symbol = j.kind === 'price' ? j.symbol : '';
-  const id = COINGECKO_IDS[BENCHMARK_COINS[symbol] ?? symbol]!;
-  const days = Math.min(COINGECKO_MAX_DAYS, daysBetween(j.after, today) + 1);
-  return `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}&interval=daily`;
-}
+export const PROVIDER_LABELS: Record<Job['provider'], string> = { yahoo: 'Yahoo Finance', trm: 'datos.gov.co (TRM oficial)' };
 
 export interface JobResult {
   job: Job;
   prices: StoredPrice[];
   fx: StoredRate[];
   error?: string;
-  /** Something the user should know even though rows came in (e.g. history cut to CoinGecko's year). */
-  note?: string;
 }
 
 export interface RunOptions {
-  key: string;
   today: IsoDate;
+  /** Unix seconds (tests); sessions that have not ended by then are left out. */
+  now?: number;
   fetch?: typeof fetch;
-  sleep?: (ms: number) => Promise<void>;
-  now?: () => number;
-  /** Twelve Data's free plan: 8 requests per minute. */
-  perMinute?: number;
-  onProgress?: (done: number, total: number, label: string, waiting: boolean) => void;
+  /** The site's quote function. */
+  endpoint?: string;
+  /** Symbols per call to the function (it must answer within Netlify's time limit). */
+  batch?: number;
+  onProgress?: (done: number, total: number, label: string) => void;
 }
 
-function parse(j: Job, body: unknown, today: IsoDate): Pick<JobResult, 'prices' | 'fx'> {
-  if (j.provider === 'trm') return { prices: [], fx: parseTrm(body, j.after, today) };
-  if (j.kind === 'fx') return { prices: [], fx: parseTwelveDataFx(body, j.ccy, j.after, today) };
-  if (j.provider === 'coingecko') return { prices: parseCoinGecko(body, j.symbol, j.after, today), fx: [] };
-  return { prices: parseTwelveDataSeries(body, j.symbol, j.ccy, j.after, today), fx: [] };
+export function trmUrl(after: IsoDate): string {
+  const q = new URLSearchParams({ $where: `vigenciadesde > '${after}T00:00:00.000'`, $order: 'vigenciadesde', $limit: '5000' });
+  return `https://www.datos.gov.co/resource/32sa-8pi3.json?${q}`;
 }
 
-/** Downloads every job in order, pacing Twelve Data to its per-minute limit. A failure stays with its job. */
+/** First day a job needs from Yahoo: its last stored day, or the stored days it is checked against. */
+const fromDay = (j: Job) => (j.kind === 'price' && j.overlap?.length ? j.overlap.reduce((m, o) => (o.date < m ? o.date : m), j.after) : j.after);
+
+/**
+ * The call to /api/quotes for some Yahoo jobs. Each Yahoo symbol is asked once, from the earliest day any of
+ * its jobs needs (a stock and an index built from the same ETF share it); each job keeps only its own days.
+ */
+export function quotesUrl(endpoint: string, jobs: readonly Job[]): string {
+  const from = new Map<string, IsoDate>();
+  for (const j of jobs) {
+    if (j.provider !== 'yahoo') continue;
+    const f = fromDay(j);
+    if (!from.has(j.yahoo) || f < from.get(j.yahoo)!) from.set(j.yahoo, f);
+  }
+  const q = new URLSearchParams();
+  for (const [sym, f] of from) q.append('s', `${sym}@${f}`);
+  return `${endpoint}?${q}`;
+}
+
+function parseYahoo(j: Job, bars: unknown, today: IsoDate, now: number | undefined): Pick<JobResult, 'prices' | 'fx'> {
+  if (j.kind === 'fx') return { prices: [], fx: parseYahooFx(bars, j.ccy, j.after, today, now) };
+  if (j.provider !== 'yahoo') return { prices: [], fx: [] };
+  if (j.anchor) return { prices: parseYahooAdjusted(bars, j.symbol, j.ccy, j.after, j.anchor, today, j.overlap, now), fx: [] };
+  return { prices: parseYahooCloses(bars, j.symbol, j.ccy, j.after, today, now), fx: [] };
+}
+
+const reason = (e: unknown, what: string) =>
+  e instanceof QuoteError ? e.message : `No se pudo conectar con ${what} (sin internet, o el servicio no respondió).`;
+
+/** Downloads every job: Yahoo ones a few at a time through the site's function, then the TRM. A failure stays with its series. */
 export async function runRefresh(plan: RefreshPlan, o: RunOptions): Promise<JobResult[]> {
   const doFetch = o.fetch ?? fetch.bind(globalThis);
-  const sleep = o.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
-  const now = o.now ?? Date.now;
-  const perMinute = o.perMinute ?? 8;
-  const calls: number[] = [];
-  const out: JobResult[] = [];
+  const endpoint = o.endpoint ?? '/api/quotes';
+  const size = o.batch ?? 6;
   const total = plan.jobs.length;
+  const out = new Map<Job, JobResult>();
+  const yahoo = plan.jobs.filter((j) => j.provider === 'yahoo');
+  const fail = (j: Job, error: string) => out.set(j, { job: j, prices: [], fx: [], error });
 
-  const pace = async (label: string, done: number) => {
-    const recent = calls.filter((t) => now() - t < 60_000);
-    if (recent.length >= perMinute) {
-      o.onProgress?.(done, total, label, true);
-      await sleep(60_000 - (now() - recent[recent.length - perMinute]!) + 500);
+  for (let i = 0; i < yahoo.length; i += size) {
+    const group = yahoo.slice(i, i + size);
+    o.onProgress?.(out.size, total, group.map(jobLabel).join(', '));
+    let body: Record<string, unknown>;
+    try {
+      const res = await doFetch(quotesUrl(endpoint, group));
+      if (res.status === 404) throw new QuoteError('El servicio de precios no está disponible aquí: usa la versión publicada de la app.');
+      body = (await res.json().catch(() => {
+        throw new QuoteError(`El servicio de precios respondió ${res.status} sin datos.`);
+      })) as Record<string, unknown>;
+      if (!res.ok) throw new QuoteError(String((body as { error?: string }).error ?? `El servicio de precios respondió ${res.status}.`));
+    } catch (e) {
+      for (const j of group) fail(j, reason(e, 'el servicio de precios'));
+      continue;
     }
-    calls.push(now());
-  };
-
-  for (const [i, j] of plan.jobs.entries()) {
-    const label = jobLabel(j);
-    o.onProgress?.(i, total, label, false);
-    let result: JobResult | undefined;
-    for (let attempt = 0; attempt < 2 && !result; attempt++) {
-      if (j.provider === 'twelvedata') await pace(label, i);
+    for (const j of group) {
       try {
-        const res = await doFetch(jobUrl(j, o.today, o.key));
-        let body: unknown;
-        try {
-          body = await res.json();
-        } catch {
-          throw new QuoteError(`${PROVIDER_LABELS[j.provider]} respondió ${res.status} sin datos legibles.`);
-        }
-        if (!res.ok && j.provider !== 'twelvedata' && !(j.provider === 'coingecko' && res.status === 429)) {
-          throw new QuoteError(`${PROVIDER_LABELS[j.provider]} respondió ${res.status}.`);
-        }
-        result = { job: j, ...parse(j, body, o.today) };
-        const first = result.prices[0]?.date;
-        if (j.provider === 'coingecko' && daysBetween(j.after, o.today) > COINGECKO_MAX_DAYS && first && first > addDays(j.after, 1)) {
-          result.note = `CoinGecko solo da el último año: faltan los días del ${addDays(j.after, 1)} al ${addDays(first, -1)}.`;
-        }
+        if (j.provider !== 'yahoo') continue;
+        const bars = body[j.yahoo];
+        if (bars === undefined) throw new QuoteError('El servicio de precios no devolvió esta serie.');
+        out.set(j, { job: j, ...parseYahoo(j, bars, o.today, o.now) });
       } catch (e) {
-        if (e instanceof QuoteError && e.retry && attempt === 0) {
-          o.onProgress?.(i, total, label, true);
-          await sleep(61_000);
-          continue;
-        }
-        const reason =
-          e instanceof QuoteError
-            ? e.message
-            : `No se pudo conectar con ${PROVIDER_LABELS[j.provider]} (sin internet, o la fuente no acepta consultas desde el navegador).`;
-        result = { job: j, prices: [], fx: [], error: reason };
+        fail(j, reason(e, 'Yahoo Finance'));
       }
     }
-    out.push(result!);
   }
-  o.onProgress?.(total, total, '', false);
-  return out;
+  for (const j of plan.jobs.filter((x) => x.provider === 'trm')) {
+    o.onProgress?.(out.size, total, jobLabel(j));
+    try {
+      const res = await doFetch(trmUrl(j.after));
+      if (!res.ok) throw new QuoteError(`datos.gov.co respondió ${res.status}.`);
+      out.set(j, { job: j, prices: [], fx: parseTrm(await res.json(), j.after, o.today) });
+    } catch (e) {
+      fail(j, reason(e, 'datos.gov.co'));
+    }
+  }
+  o.onProgress?.(total, total, '');
+  return plan.jobs.map((j) => out.get(j)!);
 }
 
 export interface Applied {

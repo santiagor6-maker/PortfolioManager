@@ -23,8 +23,8 @@ const csp = [
   "style-src 'unsafe-inline'",
   'font-src data:',
   'img-src data: blob:',
-  // Quote sources for «Actualizar precios» (src/app/refresh.ts).
-  `connect-src 'self' https://api.twelvedata.com https://www.datos.gov.co https://api.coingecko.com${supabase ? ` ${supabase}` : ''}`,
+  // Quotes: the site's own /api/quotes function and the official TRM (src/app/refresh.ts).
+  `connect-src 'self' https://www.datos.gov.co${supabase ? ` ${supabase}` : ''}`,
   "base-uri 'none'",
   "form-action 'none'",
   "frame-ancestors 'none'",
