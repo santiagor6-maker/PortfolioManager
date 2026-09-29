@@ -25,6 +25,10 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
 
 ## Registro
 
+**2026-09-29 — Variables de Supabase en Netlify**
+- La tarjeta de Sincronización no salía: el sitio no tenía `VITE_SUPABASE_URL` ni `VITE_SUPABASE_KEY`. La operación `manage-env-vars` del conector de Netlify respondía "upserted" sin guardar nada.
+- El usuario las creó en la interfaz de Netlify y volvió a publicar; el conector ya las lista. Regla: después de cambiar variables, verificarlas con `getAllEnvVars`.
+
 **2026-09-28 — Sincronización cifrada con Supabase**
 - Esquema en `supabase/migrations/`: tabla `datasets` que solo guarda texto cifrado y versión, con RLS; lista de correos permitidos en el esquema `private`; guardado optimista por versión. Probado contra el proyecto real con usuarios sintéticos, ya borrados; el advisor de seguridad quedó sin advertencias.
 - App (`src/data/crypto.ts`, `src/app/sync.ts`): comprime (gzip) y cifra en el navegador (PBKDF2 + AES-GCM). Entra con código por correo. Nunca fusiona: en conflicto se elige una copia y la otra se guarda y se descarga. Estado visible en el encabezado.
