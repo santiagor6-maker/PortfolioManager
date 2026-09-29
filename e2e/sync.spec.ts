@@ -25,6 +25,8 @@ class FakeSupabase {
   /** Seconds an access token lasts (short: every use needs a refresh first). */
   tokenLife = 3600;
   refreshes = 0;
+  /** Where the last emailed sign-in link would send the user back to. */
+  redirect?: string | null;
 
   session(email: string) {
     const now = Math.floor(Date.now() / 1000);
@@ -48,7 +50,10 @@ class FakeSupabase {
     const user = (req.headers()['authorization'] ?? '').replace(/^Bearer tok:/, '');
     const body = req.postData() ? JSON.parse(req.postData()!) : {};
 
-    if (url.pathname === '/auth/v1/otp') return json(200, {});
+    if (url.pathname === '/auth/v1/otp') {
+      this.redirect = url.searchParams.get('redirect_to');
+      return json(200, {});
+    }
     if (url.pathname === '/auth/v1/verify') {
       if (body.token !== CODE) return json(403, { code: 403, error_code: 'otp_expired', msg: 'Token has expired or is invalid' });
       return json(200, this.session(body.email));
@@ -124,8 +129,8 @@ async function device(context: BrowserContext, fake: FakeSupabase, port: number)
 async function signIn(page: Page, email: string) {
   const card = page.locator('.sync-card');
   await card.getByLabel('Correo').fill(email);
-  await card.getByRole('button', { name: 'Enviarme un código' }).click();
-  await card.getByLabel(/Código que llegó a/).fill(CODE);
+  await card.getByRole('button', { name: 'Enviarme el enlace' }).click();
+  await card.getByLabel(/Código \(si el correo/).fill(CODE);
   await card.getByRole('button', { name: 'Entrar' }).click();
 }
 
@@ -210,6 +215,38 @@ test('sync: encrypted upload, second device with the passphrase, changes, and a 
 
   expect((a as Page & { errors: string[] }).errors).toEqual([]);
   expect((b as Page & { errors: string[] }).errors).toEqual([]);
+});
+
+test('sync: the emailed link signs in on the page it came back to, and an expired one says so', async ({ browser }) => {
+  const fake = new FakeSupabase();
+  const ctx = await browser.newContext();
+  const a = await device(ctx, fake, ports[0]!);
+  const card = a.locator('.sync-card');
+  await card.getByLabel('Correo').fill('link@example.test');
+  await card.getByRole('button', { name: 'Enviarme el enlace' }).click();
+  await expect(card.getByText('en este mismo navegador')).toBeVisible();
+  expect(fake.redirect).toBe(`http://127.0.0.1:${ports[0]}/`);
+
+  // What Supabase does when the link is opened: back to redirect_to with the session in the hash.
+  const s = fake.session('link@example.test');
+  const hash = new URLSearchParams({ access_token: s.access_token, refresh_token: s.refresh_token, expires_in: String(s.expires_in), expires_at: String(s.expires_at), token_type: 'bearer', type: 'magiclink' });
+  const b = await ctx.newPage();
+  const errors: string[] = [];
+  b.on('pageerror', (e) => errors.push(e.message));
+  await b.goto(`${fake.redirect}#${hash}`);
+  await expect(b.locator('.sync-card').getByLabel('Frase', { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(b).toHaveURL(/#\/datos$/);
+  // The tab that asked for the link follows.
+  await expect(card.getByLabel('Frase', { exact: true })).toBeVisible({ timeout: 15_000 });
+
+  const ctx2 = await browser.newContext();
+  await ctx2.route('https://sync.test/**', (r) => fake.handle(r));
+  const c = await ctx2.newPage();
+  await c.goto(`http://127.0.0.1:${ports[1]}/#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired`);
+  await expect(c.locator('.sync-card').getByRole('alert')).toContainText('El enlace no es válido o ya venció');
+  await expect(c.locator('.sync-card').getByLabel('Correo')).toBeVisible();
+  await expect(c).toHaveURL(/#\/datos$/);
+  expect([...(a as Page & { errors: string[] }).errors, ...errors]).toEqual([]);
 });
 
 test('sync: a device that reopens the app keeps its key and syncs without asking again', async ({ browser }) => {

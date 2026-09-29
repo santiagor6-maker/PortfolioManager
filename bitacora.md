@@ -25,6 +25,11 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
 
 ## Registro
 
+**2026-09-29 — Entrar con el enlace del correo**
+- En el plan gratuito Supabase no deja editar las plantillas sin SMTP propio, así que el correo solo trae un enlace, sin código de 6 dígitos.
+- `sync.ts` ahora acepta el enlace: vuelve a la página con la sesión en el hash, auth-js la lee y la borra, y la pestaña que lo pidió también avanza. Un enlace vencido lo avisa. El campo de código queda por si el correo lo trae.
+- Hace falta que en Supabase → URL Configuration la Site URL sea el sitio de Netlify. e2e nuevo del enlace válido y del vencido (29 e2e).
+
 **2026-09-29 — Variables de Supabase en Netlify**
 - La tarjeta de Sincronización no salía: el sitio no tenía `VITE_SUPABASE_URL` ni `VITE_SUPABASE_KEY`. La operación `manage-env-vars` del conector de Netlify respondía "upserted" sin guardar nada.
 - El usuario las creó en la interfaz de Netlify y volvió a publicar; el conector ya las lista. Regla: después de cambiar variables, verificarlas con `getAllEnvVars`.

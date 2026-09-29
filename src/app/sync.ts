@@ -269,7 +269,10 @@ async function forget(): Promise<void> {
 /** Starts sync on app load: restores the session and the saved key, and checks the cloud. */
 export async function initSync(): Promise<void> {
   if (!syncConfigured || client) return;
-  client = createClient(URL_!, KEY_!, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false } });
+  // The emailed sign-in link comes back with the session (or an error) in the hash; auth-js reads it and
+  // clears a valid one. Supabase's default emails carry only the link, so this is the usual way in.
+  const link = /(^#|&)(access_token|error_description)=/.test(location.hash) ? new URLSearchParams(location.hash.slice(1)) : undefined;
+  client = createClient(URL_!, KEY_!, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: 'implicit' } });
   // Registered before anything is awaited: the store also persists the flag, for changes made before this.
   onLocalChange(() => {
     dirty = true;
@@ -289,6 +292,8 @@ export async function initSync(): Promise<void> {
   }
   client.auth.onAuthStateChange((event) => {
     if (event === 'TOKEN_REFRESHED' && sessionUnknown) void serial(resume);
+    // The link was opened in another tab of this browser: this one follows.
+    if (event === 'SIGNED_IN' && state.status === 'code-sent') void serial(startSession);
     if (event === 'SIGNED_OUT') void serial(async () => {
       await forget();
       update({ status: 'signed-out', email: undefined, lastSync: undefined, remote: undefined });
@@ -299,6 +304,10 @@ export async function initSync(): Promise<void> {
     if (document.visibilityState === 'visible') void serial(resume);
   });
   await serial(startSession);
+  if (link) {
+    if (link.has('error_description') && state.status === 'signed-out') update({ message: 'El enlace no es válido o ya venció. Pide uno nuevo.' });
+    location.hash = '/datos';
+  }
 }
 
 /** Restores the session. Only a confirmed absence of session forgets the key; a failure to check it does not. */
@@ -337,7 +346,9 @@ async function afterSignIn(): Promise<void> {
 
 export function sendCode(email: string): Promise<void> {
   return serial(async () => {
-    const { error } = await client!.auth.signInWithOtp({ email: email.trim(), options: { shouldCreateUser: true } });
+    // The link returns to this page; from a local file (file://) only the code can work.
+    const emailRedirectTo = location.protocol.startsWith('http') ? location.origin + location.pathname : undefined;
+    const { error } = await client!.auth.signInWithOtp({ email: email.trim(), options: { shouldCreateUser: true, emailRedirectTo } });
     if (error) throw error;
     update({ status: 'code-sent', email: email.trim(), message: undefined });
   });

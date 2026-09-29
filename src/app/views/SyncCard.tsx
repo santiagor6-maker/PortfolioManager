@@ -9,7 +9,7 @@ export const STATUS_LABEL: Record<SyncStatus, string> = {
   off: 'Solo en este navegador',
   starting: 'Conectando…',
   'signed-out': 'Sin sincronizar',
-  'code-sent': 'Esperando el código',
+  'code-sent': 'Esperando el enlace',
   'new-passphrase': 'Falta crear la frase',
   'needs-passphrase': 'Falta la frase',
   synced: 'Sincronizado',
@@ -64,18 +64,24 @@ export function SyncCard() {
             Correo
             <input type="email" required autocomplete="email" value={email} onInput={(e) => setEmail((e.target as HTMLInputElement).value)} />
           </label>
-          <button class="primary" disabled={working || !email}>Enviarme un código</button>
+          <button class="primary" disabled={working || !email}>Enviarme el enlace</button>
         </form>
       )}
 
       {s.status === 'code-sent' && (
-        <form class="actions" onSubmit={act(() => verifyCode(code))}>
-          <label class="field">
-            Código que llegó a {s.email}
-            <input inputMode="numeric" autocomplete="one-time-code" required value={code} onInput={(e) => setCode((e.target as HTMLInputElement).value)} />
-          </label>
-          <button class="primary" disabled={working || !code}>Entrar</button>
-          <button type="button" class="link" onClick={restart}>Usar otro correo</button>
+        <form onSubmit={act(() => verifyCode(code))}>
+          <p>
+            Te enviamos un correo a <strong>{s.email}</strong>. Abre el enlace <strong>en este mismo navegador</strong>; en el celular, mantén presionado el
+            enlace y elige abrirlo en Chrome o Safari.
+          </p>
+          <div class="actions">
+            <label class="field">
+              Código (si el correo trae uno)
+              <input inputMode="numeric" autocomplete="one-time-code" required value={code} onInput={(e) => setCode((e.target as HTMLInputElement).value)} />
+            </label>
+            <button class="primary" disabled={working || !code}>Entrar</button>
+            <button type="button" class="link" onClick={restart}>Usar otro correo</button>
+          </div>
         </form>
       )}
 
