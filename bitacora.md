@@ -15,7 +15,7 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
   4. Fundamentales mensuales desde SEC EDGAR al abrir la app.
 - Netlify `portfoliomanager-sr` publica esta rama en cada push.
 - Supabase `portfoliomanager` (us-east-1, gratis): el login con enlace funciona, pero la primera copia la creó el celular vacío y el computador no quedó vinculado. El usuario lo pospuso ("muy complejo"); retomar simplificando el primer uso.
-- «Traer precios del cierre» (etapa 3) con Yahoo vía la función `/api/quotes` de Netlify y la TRM oficial: falta la primera prueba del usuario en el sitio (riesgo: que Yahoo limite las IP de Netlify).
+- «Traer precios del cierre» (etapa 3) con Yahoo vía la función `/api/quotes` de Netlify y la TRM oficial: probado por el usuario en el sitio, Yahoo responde desde Netlify.
 - Decisión pendiente: el historial tiene las tasas EUR/CAD de horario de verano británico fechadas un día antes (mismo valor, fecha −1); se corrige en los datos si el usuario quiere.
 - Pendiente del usuario:
   - valores manuales de jul–sep 2026; el cierre de julio 2026 solo espera esto;
@@ -26,6 +26,10 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
 - Mejora anotada: el aviso de TRM del Cierre nombra el primer mes pendiente, no el mes que se está cerrando.
 
 ## Registro
+
+**2026-09-30 — Primer uso de «Traer precios del cierre»**
+- Funcionó en el sitio publicado, sin series fallidas. El usuario preguntó si solo trae cierres de mes: trae cada día hábil que falte, porque el historial es diario (PME en la fecha de cada flujo, rango de 52 semanas, drawdowns); basta oprimirlo una vez después de fin de mes.
+- La tarjeta ahora lo dice, separa la fecha de los precios de la de la TRM (que rige desde el día siguiente a publicarse) y nombra las series pendientes (hasta 3) y cuándo la fuente aún no tiene un cierre nuevo.
 
 **2026-09-29 — Precios del cierre desde Yahoo**
 - El usuario solo necesita cierres de mes y preguntó cómo se validaron antes Colombia, Londres y París: el historial viene de Yahoo. Se reemplazan Twelve Data y CoinGecko por Yahoo vía la función `netlify/functions/quotes.mts`, sin clave; la TRM sigue oficial.

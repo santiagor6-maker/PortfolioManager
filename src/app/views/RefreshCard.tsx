@@ -57,6 +57,14 @@ export function RefreshCard({ compact = false }: { compact?: boolean }) {
   const plan = useMemo(() => refreshPlan(data, today()), [data]);
   const running = progress !== undefined;
   const n = plan.jobs.length;
+  const pending = plan.jobs.map(jobLabel);
+  // Series the last run reached without error but whose source had no newer close yet (a day without trades, an index published late).
+  const waiting = new Set(done ? done.results.filter((r, i) => !r.error && done.applied.added[i]!.count === 0).map((r) => jobLabel(r.job)) : []);
+  const status =
+    n === 0
+      ? 'Todo está al día.'
+      : `${n === 1 ? 'Falta actualizar 1 serie' : `Faltan por actualizar ${n} series`}${n <= 3 ? `: ${pending.join(', ')}` : ''}.` +
+        (pending.every((l) => waiting.has(l)) ? ' La fuente todavía no tiene un cierre más nuevo; se completa la próxima vez.' : '');
 
   const body = published() ? (
     <>
@@ -64,7 +72,7 @@ export function RefreshCard({ compact = false }: { compact?: boolean }) {
         <button class="primary" disabled={running || n === 0} onClick={() => void start(plan)}>
           {running ? 'Trayendo precios…' : 'Traer precios del cierre'}
         </button>
-        <span class="small muted">{n === 0 ? 'Todo está al día.' : n === 1 ? 'Falta actualizar 1 serie.' : `Faltan por actualizar ${n} series.`}</span>
+        <span class="small muted">{status}</span>
       </div>
       {progress && (
         <div class="refresh-progress" role="status">
@@ -114,8 +122,9 @@ export function RefreshCard({ compact = false }: { compact?: boolean }) {
     <div class="card refresh-card">
       <h2>Precios del cierre</h2>
       <p class="small muted">
-        Trae los cierres que faltan desde el último guardado, de las mismas fuentes de tu historial: Yahoo Finance para acciones, ETF, cripto, índices y tasas, y la TRM oficial
-        (datos.gov.co). Solo agrega días nuevos: nunca cambia un precio guardado.
+        Trae el cierre de cada día que falta desde el último guardado (tu historial es diario), de las mismas fuentes: Yahoo Finance para acciones, ETF, cripto, índices y
+        tasas, y la TRM oficial (datos.gov.co). Para cerrar un mes basta oprimirlo una vez después del último día del mes. Solo agrega días nuevos: nunca cambia un precio
+        guardado.
       </p>
       {body}
       {extra}
@@ -125,13 +134,18 @@ export function RefreshCard({ compact = false }: { compact?: boolean }) {
 
 function Result({ results, applied }: { results: JobResult[]; applied: Applied }) {
   const failed = results.filter((r) => r.error);
-  const latest = applied.added.reduce<string | undefined>((x, a) => (a.last && (!x || a.last > x) ? a.last : x), undefined);
+  // Prices and rates end on different days (the TRM is published the day before it applies), so each says its own.
+  const latest = (kind: 'price' | 'fx') =>
+    applied.added.reduce<string | undefined>((x, a, i) => (results[i]!.job.kind === kind && a.last && (!x || a.last > x) ? a.last : x), undefined);
+  const part = (count: number, one: string, many: string, last: string | undefined) => `${count} ${count === 1 ? one : many}${last ? ` hasta el ${date(last)}` : ''}`;
+  const parts = [
+    applied.prices > 0 && part(applied.prices, 'precio', 'precios', latest('price')),
+    applied.fx > 0 && part(applied.fx, 'tasa', 'tasas', latest('fx')),
+  ].filter(Boolean);
   return (
     <>
       <div class={`notice ${failed.length ? 'warn' : 'info'}`} role="status">
-        {applied.prices + applied.fx === 0
-          ? 'No había días nuevos para agregar.'
-          : `Se agregaron ${applied.prices} ${applied.prices === 1 ? 'precio' : 'precios'} y ${applied.fx} ${applied.fx === 1 ? 'tasa' : 'tasas'}${latest ? `, hasta el ${date(latest)}` : ''}.`}
+        {parts.length === 0 ? 'No había días nuevos para agregar.' : `Se agregaron ${parts.join(' y ')}.`}
         {failed.length > 0 && ` ${failed.length === 1 ? '1 serie falló' : `${failed.length} series fallaron`} y queda${failed.length === 1 ? '' : 'n'} como estaba${failed.length === 1 ? '' : 'n'}: ${failed.map((r) => jobLabel(r.job)).join(', ')}.`}
       </div>
       <details class="small">
