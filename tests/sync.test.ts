@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { deriveKey, fromBase64, newSalt, seal, unseal, WrongPassphrase } from '../src/data/crypto.ts';
+import { pbkdf2Sync } from 'node:crypto';
+import { deriveKey, fromBase64, KDF_ITERATIONS, loginSecret, newSalt, seal, toBase64, unseal, validKdf, WrongPassphrase } from '../src/data/crypto.ts';
 import { emptyDataset } from '../src/data/json.ts';
 import type { Dataset } from '../src/data/json.ts';
 import { decideSync } from '../src/app/syncPlan.ts';
@@ -30,6 +31,30 @@ describe('crypto', () => {
     const blob = await seal(sample(3), await deriveKey('frase de prueba larga', salt, ITER));
     const other = await deriveKey('frase de prueba larga', salt, ITER);
     expect((await unseal<Dataset>(blob, other)).prices).toHaveLength(3);
+  });
+
+  it('the login secret is the same on every device, per email, and never the password', async () => {
+    const a = await loginSecret('mi contraseña larga', 'Yo@Ejemplo.com ', ITER);
+    expect(await loginSecret('mi contraseña larga', 'yo@ejemplo.com', ITER)).toBe(a);
+    expect(await loginSecret('mi contraseña larga', 'otro@ejemplo.com', ITER)).not.toBe(a);
+    expect(await loginSecret('otra contraseña', 'yo@ejemplo.com', ITER)).not.toBe(a);
+    expect(a).toHaveLength(44);
+    expect(a).not.toContain('contraseña');
+  });
+
+  it('the login secret is exactly PBKDF2-SHA-256 of the password with the per-email salt, 600000 rounds (accounts depend on it)', async () => {
+    const expected = pbkdf2Sync('mi contraseña larga'.normalize('NFC'), 'investment-tracker/login/yo@ejemplo.com', 600_000, 32, 'sha256').toString('base64');
+    expect(await loginSecret('mi contraseña larga', 'yo@ejemplo.com')).toBe(expected);
+  });
+
+  it('a cloud copy is opened only with the parameters the app writes, never with the login salt', () => {
+    expect(validKdf(newSalt(), KDF_ITERATIONS)).toBe(true);
+    expect(validKdf(newSalt(), KDF_ITERATIONS - 1)).toBe(false);
+    expect(validKdf(newSalt(), 1.5e6 + 0.5)).toBe(false);
+    expect(validKdf(newSalt(), 1e9)).toBe(false);
+    expect(validKdf(toBase64(new TextEncoder().encode('investment-tracker/login/yo@ejemplo.com')), KDF_ITERATIONS)).toBe(false);
+    expect(validKdf(toBase64(new Uint8Array(15)), KDF_ITERATIONS)).toBe(false);
+    expect(validKdf('no es base64 %%', KDF_ITERATIONS)).toBe(false);
   });
 
   it('a wrong passphrase fails with WrongPassphrase and returns nothing', async () => {

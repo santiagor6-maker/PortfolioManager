@@ -14,7 +14,7 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
   3. Precios del cierre automáticos (Yahoo + TRM): hecho.
   4. Fundamentales mensuales desde SEC EDGAR al abrir la app.
 - Netlify `portfoliomanager-sr` publica esta rama en cada push.
-- Supabase `portfoliomanager` (us-east-1, gratis): el login con enlace funciona, pero la primera copia la creó el celular vacío y el computador no quedó vinculado. El usuario lo pospuso ("muy complejo"); retomar simplificando el primer uso.
+- Sincronización: se pasó a correo + contraseña. El usuario borra el proyecto Supabase viejo y crea uno propio; le toca correr el SQL de configuración, desactivar «Confirm email», poner URL y clave en Netlify, y desactivar «Allow new users to sign up» tras crear su cuenta.
 - «Traer precios del cierre» (etapa 3) con Yahoo vía la función `/api/quotes` de Netlify y la TRM oficial: probado por el usuario en el sitio, Yahoo responde desde Netlify.
 - Decisión pendiente: el historial tiene las tasas EUR/CAD de horario de verano británico fechadas un día antes (mismo valor, fecha −1); se corrige en los datos si el usuario quiere.
 - Pendiente del usuario:
@@ -26,6 +26,11 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
 - Mejora anotada: el aviso de TRM del Cierre nombra el primer mes pendiente, no el mes que se está cerrando.
 
 ## Registro
+
+**2026-09-30 — Entrar con correo y contraseña**
+- Los enlaces por correo fallaban: los registros de Supabase muestran que un revisor de correo usaba cada enlace segundos antes del clic del usuario. Se reemplazan por correo + contraseña, con una sola contraseña: Supabase recibe un secreto derivado (PBKDF2 con sal por correo) y los datos se cifran con otra clave derivada, así que la nube sigue sin poder leerlos.
+- Un dispositivo vacío ya no crea la primera copia en la nube (así se creó la copia vacía del celular). Un dispositivo que solo perdió la clave retoma sin conflicto.
+- `finance-reviewer`: dos pasadas. Corregidos: rechazar copias con sal o iteraciones ajenas (evita que la clave de datos sea igual al secreto de login), el bloqueo tras un fallo de red al entrar, la escritura atómica de la marca de cambios, un vector fijo del secreto y la detección de red caída. 196 unit + 35 e2e.
 
 **2026-09-30 — Primer uso de «Traer precios del cierre»**
 - Funcionó en el sitio publicado, sin series fallidas. El usuario preguntó si solo trae cierres de mes: trae cada día hábil que falte, porque el historial es diario (PME en la fecha de cada flujo, rango de 52 semanas, drawdowns); basta oprimirlo una vez después de fin de mes.

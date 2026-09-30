@@ -1,17 +1,14 @@
 import { useState } from 'preact/hooks';
-import { useDataset } from '../store.ts';
-import { createPassphrase, downloadReplaced, isEmptyDataset, keepThisDevice, restart, sendCode, signOut, syncNow, unlock, useCloudCopy, useSync, verifyCode } from '../sync.ts';
+import { downloadReplaced, keepThisDevice, signIn, signOut, syncNow, useCloudCopy, useSync } from '../sync.ts';
 import type { SyncStatus } from '../sync.ts';
 
-const MIN_PASSPHRASE = 10;
+const MIN_PASSWORD = 10;
 
 export const STATUS_LABEL: Record<SyncStatus, string> = {
   off: 'Solo en este navegador',
   starting: 'Conectando…',
   'signed-out': 'Sin sincronizar',
-  'code-sent': 'Esperando el enlace',
-  'new-passphrase': 'Falta crear la frase',
-  'needs-passphrase': 'Falta la frase',
+  'needs-password': 'Falta la contraseña',
   synced: 'Sincronizado',
   pending: 'Cambios por subir',
   syncing: 'Sincronizando…',
@@ -25,12 +22,11 @@ function when(iso?: string): string {
   return new Date(iso).toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' });
 }
 
-/** Datos → Sincronización: sign in with an emailed code, set or enter the passphrase, see the state. */
+/** Datos → Sincronización: sign in (or create the account) with email and password, see the state. */
 export function SyncCard() {
   const s = useSync();
-  const empty = isEmptyDataset(useDataset().data);
   const [email, setEmail] = useState(s.email ?? '');
-  const [code, setCode] = useState('');
+  const [create, setCreate] = useState(false);
   const [pass, setPass] = useState('');
   const [pass2, setPass2] = useState('');
   const [ack, setAck] = useState(false);
@@ -51,7 +47,7 @@ export function SyncCard() {
     <div class="card sync-card">
       <h2>Sincronización</h2>
       <p class="small muted">
-        Guarda una copia <strong>cifrada</strong> en la nube para ver tus datos en todos tus dispositivos. Se cifra en este navegador con una frase que solo tú conoces: ni el
+        Guarda una copia <strong>cifrada</strong> en la nube para ver tus datos en todos tus dispositivos. Se cifra en este navegador con tu contraseña: ni el
         servicio ni nadie más puede leerla.
       </p>
       {s.message && <div class={`notice ${s.status === 'offline' ? 'warn' : 'err'}`} role="alert">{s.message}</div>}
@@ -59,64 +55,60 @@ export function SyncCard() {
       {s.status === 'starting' && <p class="small muted">Conectando con la nube…</p>}
 
       {s.status === 'signed-out' && (
-        <form class="actions" onSubmit={act(() => sendCode(email))}>
-          <label class="field">
-            Correo
-            <input type="email" required autocomplete="email" value={email} onInput={(e) => setEmail((e.target as HTMLInputElement).value)} />
-          </label>
-          <button class="primary" disabled={working || !email}>Enviarme el enlace</button>
-        </form>
-      )}
-
-      {s.status === 'code-sent' && (
-        <form onSubmit={act(() => verifyCode(code))}>
-          <p>
-            Te enviamos un correo a <strong>{s.email}</strong>. Abre el enlace <strong>en este mismo navegador</strong>; en el celular, mantén presionado el
-            enlace y elige abrirlo en Chrome o Safari.
-          </p>
-          <div class="actions">
-            <label class="field">
-              Código (si el correo trae uno)
-              <input inputMode="numeric" autocomplete="one-time-code" required value={code} onInput={(e) => setCode((e.target as HTMLInputElement).value)} />
-            </label>
-            <button class="primary" disabled={working || !code}>Entrar</button>
-            <button type="button" class="link" onClick={restart}>Usar otro correo</button>
-          </div>
-        </form>
-      )}
-
-      {s.status === 'new-passphrase' && (
-        <form onSubmit={act(() => createPassphrase(pass))}>
-          <p>Todavía no hay una copia en la nube. Crea la frase con la que se cifrarán tus datos (mínimo {MIN_PASSPHRASE} caracteres; una frase de varias palabras es mejor).</p>
+        <form onSubmit={act(() => signIn(email, pass, create))}>
           <div class="form-grid">
             <label class="field">
-              Frase
-              <input type="password" autocomplete="new-password" value={pass} onInput={(e) => setPass((e.target as HTMLInputElement).value)} />
+              Correo
+              <input type="email" required autocomplete="email" value={email} onInput={(e) => setEmail((e.target as HTMLInputElement).value)} />
             </label>
             <label class="field">
-              Repite la frase
-              <input type="password" autocomplete="new-password" value={pass2} onInput={(e) => setPass2((e.target as HTMLInputElement).value)} />
+              Contraseña
+              <input
+                type="password"
+                required
+                autocomplete={`${create ? 'new' : 'current'}-password`}
+                value={pass}
+                onInput={(e) => setPass((e.target as HTMLInputElement).value)}
+              />
             </label>
+            {create && (
+              <label class="field">
+                Repite la contraseña
+                <input type="password" autocomplete="new-password" value={pass2} onInput={(e) => setPass2((e.target as HTMLInputElement).value)} />
+              </label>
+            )}
           </div>
-          <label class="check">
-            <input type="checkbox" checked={ack} onChange={(e) => setAck((e.target as HTMLInputElement).checked)} /> Entiendo que si olvido la frase no se puede recuperar la copia en la nube (mis respaldos .json siguen sirviendo).
-          </label>
+          {create && (
+            <>
+              <p class="small muted">
+                Mínimo {MIN_PASSWORD} caracteres. La misma contraseña cifra tus datos: ni Supabase ni nadie más puede leerlos, y por eso no se puede recuperar.
+              </p>
+              <label class="check">
+                <input type="checkbox" checked={ack} onChange={(e) => setAck((e.target as HTMLInputElement).checked)} /> Entiendo que si olvido la contraseña no se puede recuperar la
+                copia en la nube (mis respaldos .json siguen sirviendo).
+              </label>
+            </>
+          )}
           <div class="actions">
-            <button class="primary" disabled={working || !ack || pass.length < MIN_PASSPHRASE || pass !== pass2}>
-              {empty ? 'Activar la sincronización' : 'Descargar respaldo y activar'}
+            <button class="primary" disabled={working || !email || !pass || (create && (!ack || pass.length < MIN_PASSWORD || pass !== pass2))}>
+              {create ? 'Crear cuenta y sincronizar' : 'Entrar'}
             </button>
-            {pass2 && pass !== pass2 && <span class="small bad">Las frases no coinciden.</span>}
+            <button type="button" class="link" onClick={() => setCreate(!create)}>
+              {create ? 'Ya tengo cuenta' : 'Crear cuenta (primera vez)'}
+            </button>
+            {create && pass2 && pass !== pass2 && <span class="small bad">Las contraseñas no coinciden.</span>}
           </div>
         </form>
       )}
 
-      {s.status === 'needs-passphrase' && (
-        <form class="actions" onSubmit={act(() => unlock(pass))}>
+      {s.status === 'needs-password' && (
+        <form class="actions" onSubmit={act(() => signIn(s.email ?? '', pass))}>
           <label class="field">
-            Tu frase
+            Contraseña de {s.email}
             <input type="password" autocomplete="current-password" value={pass} onInput={(e) => setPass((e.target as HTMLInputElement).value)} />
           </label>
           <button class="primary" disabled={working || !pass}>Abrir mis datos</button>
+          <button type="button" class="link" disabled={working} onClick={act(signOut)}>Usar otro correo</button>
         </form>
       )}
 

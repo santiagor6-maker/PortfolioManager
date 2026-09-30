@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { useEffect, useState } from 'preact/hooks';
-import { deriveKey, KDF_ITERATIONS, newSalt, seal, unseal, WrongPassphrase } from '../data/crypto.ts';
+import { deriveKey, KDF_ITERATIONS, loginSecret, newSalt, seal, unseal, validKdf, WrongPassphrase } from '../data/crypto.ts';
 import type { Dataset } from '../data/json.ts';
 import { download } from './download.ts';
 import { today } from './format.ts';
@@ -10,8 +10,9 @@ import { decideSync } from './syncPlan.ts';
 
 /**
  * Optional cloud sync through Supabase. Local first: IndexedDB stays the working copy and the app works
- * offline. The dataset is sealed with a key derived from the user's passphrase before it is uploaded, so the
- * server only stores ciphertext. Saves are optimistic on a version number and are never merged: when both
+ * offline. One password per user: the account signs in with a secret derived from it (`loginSecret`) and the
+ * dataset is sealed with another key derived from it before it is uploaded, so the server only stores
+ * ciphertext and never sees the password. Saves are optimistic on a version number and are never merged: when both
  * sides changed (or the cloud copy went back), the user picks one, and the other is kept on this device and
  * handed over as a file first.
  *
@@ -26,9 +27,8 @@ export type SyncStatus =
   | 'off'
   | 'starting'
   | 'signed-out'
-  | 'code-sent'
-  | 'new-passphrase'
-  | 'needs-passphrase'
+  /** Signed in, but this device does not hold the key: the password opens the data again. */
+  | 'needs-password'
   | 'synced'
   | 'pending'
   | 'syncing'
@@ -120,7 +120,8 @@ function describe(e: unknown): Partial<SyncState> {
   const err = e as { code?: string; message?: string };
   if (err?.code === '42501') return { status: 'error', message: 'Este correo no está autorizado para sincronizar.' };
   if (!navigator.onLine) return { status: 'offline', message: undefined };
-  if (e instanceof TypeError || err?.message === 'Failed to fetch') return { status: 'offline', message: 'No se pudo conectar con la nube.' };
+  // supabase-js reports a failed request as an error whose message is the fetch error's ("TypeError: Failed to fetch").
+  if (e instanceof TypeError || /Failed to fetch|NetworkError|Load failed/i.test(err?.message ?? '')) return { status: 'offline', message: 'No se pudo conectar con la nube.' };
   return { status: 'error', message: err?.message ?? String(e) };
 }
 
@@ -162,7 +163,7 @@ async function forgetKey(message?: string): Promise<void> {
   key = undefined;
   meta = { baseVersion: 0 };
   await kvSetMany([[KEY, undefined], [META, undefined]]);
-  update({ status: 'needs-passphrase', message });
+  update({ status: 'needs-password', message });
 }
 
 async function persist(clean: boolean): Promise<void> {
@@ -190,7 +191,7 @@ async function check(): Promise<void> {
   try {
     data = await openRow(row, key);
   } catch (e) {
-    if (e instanceof WrongPassphrase) return forgetKey('La copia en la nube se cifró con otra frase. Escríbela para abrirla.');
+    if (e instanceof WrongPassphrase) return forgetKey(OTHER_PASSWORD);
     throw e;
   }
   await apply(data, row.version, gen, row);
@@ -241,7 +242,7 @@ async function toConflict(remote: number): Promise<void> {
   try {
     data = await openRow(row, key!);
   } catch (e) {
-    if (e instanceof WrongPassphrase) return forgetKey('La copia en la nube se cifró con otra frase. Escríbela para abrirla.');
+    if (e instanceof WrongPassphrase) return forgetKey(OTHER_PASSWORD);
     throw e;
   }
   pending = { data, version: row.version };
@@ -266,13 +267,13 @@ async function forget(): Promise<void> {
   await kvSetMany([[KEY, undefined], [META, undefined], [DIRTY, undefined]]);
 }
 
+const OTHER_PASSWORD =
+  'Tu contraseña no abre la copia que hay en la nube (se guardó con otra). Si no la recuerdas, borra esa copia en Supabase (tabla datasets) y vuelve a entrar desde el dispositivo que tiene tus datos.';
+
 /** Starts sync on app load: restores the session and the saved key, and checks the cloud. */
 export async function initSync(): Promise<void> {
   if (!syncConfigured || client) return;
-  // The emailed sign-in link comes back with the session (or an error) in the hash; auth-js reads it and
-  // clears a valid one. Supabase's default emails carry only the link, so this is the usual way in.
-  const link = /(^#|&)(access_token|error_description)=/.test(location.hash) ? new URLSearchParams(location.hash.slice(1)) : undefined;
-  client = createClient(URL_!, KEY_!, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: 'implicit' } });
+  client = createClient(URL_!, KEY_!, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false } });
   // Registered before anything is awaited: the store also persists the flag, for changes made before this.
   onLocalChange(() => {
     dirty = true;
@@ -292,8 +293,6 @@ export async function initSync(): Promise<void> {
   }
   client.auth.onAuthStateChange((event) => {
     if (event === 'TOKEN_REFRESHED' && sessionUnknown) void serial(resume);
-    // The link was opened in another tab of this browser: this one follows.
-    if (event === 'SIGNED_IN' && state.status === 'code-sent') void serial(startSession);
     if (event === 'SIGNED_OUT') void serial(async () => {
       await forget();
       update({ status: 'signed-out', email: undefined, lastSync: undefined, remote: undefined });
@@ -304,10 +303,6 @@ export async function initSync(): Promise<void> {
     if (document.visibilityState === 'visible') void serial(resume);
   });
   await serial(startSession);
-  if (link) {
-    if (link.has('error_description') && state.status === 'signed-out') update({ message: 'El enlace no es válido o ya venció. Pide uno nuevo.' });
-    location.hash = '/datos';
-  }
 }
 
 /** Restores the session. Only a confirmed absence of session forgets the key; a failure to check it does not. */
@@ -329,7 +324,7 @@ async function startSession(): Promise<void> {
     return update({ status: 'signed-out' });
   }
   update({ email: data.session.user.email });
-  if (!key) return afterSignIn();
+  if (!key) return update({ status: 'needs-password' });
   update({ status: 'syncing' });
   return check();
 }
@@ -339,71 +334,100 @@ function resume(): Promise<void> {
   return sessionUnknown ? startSession() : check();
 }
 
-async function afterSignIn(): Promise<void> {
-  const remote = await remoteVersion();
-  update({ status: remote === 0 ? 'new-passphrase' : 'needs-passphrase', message: undefined });
+const MESSAGES: Record<string, string> = {
+  invalid_credentials: 'Correo o contraseña incorrectos. Si es la primera vez, usa «Crear cuenta».',
+  user_already_exists: 'Ya hay una cuenta con este correo: usa «Entrar».',
+  email_exists: 'Ya hay una cuenta con este correo: usa «Entrar».',
+  email_not_confirmed: 'Supabase pide confirmar el correo: en Supabase → Authentication → Sign In / Providers → Email, desactiva «Confirm email» y vuelve a intentarlo.',
+  signup_disabled: 'Crear cuentas está desactivado en Supabase.',
+  weak_password: 'Supabase rechazó la contraseña por débil: revisa su política en Authentication → Sign In / Providers.',
+  over_request_rate_limit: 'Demasiados intentos seguidos. Espera unos minutos.',
+};
+
+/** An auth failure in words, on the form the user is on. */
+function authFailed(error: { code?: string; message: string; status?: number }, status: SyncStatus): void {
+  const message = !error.status ? 'No se pudo conectar con la nube. Revisa la conexión e inténtalo de nuevo.' : ((error.code && MESSAGES[error.code]) ?? error.message);
+  update({ status, message });
 }
 
-export function sendCode(email: string): Promise<void> {
+/**
+ * Signs in with email and password (or first creates the account) and opens the data with the same password.
+ * Supabase must not ask to confirm the email, or a new account comes back without a session.
+ */
+export function signIn(email: string, password: string, create = false): Promise<void> {
   return serial(async () => {
-    // The link returns to this page; from a local file (file://) only the code can work.
-    const emailRedirectTo = location.protocol.startsWith('http') ? location.origin + location.pathname : undefined;
-    const { error } = await client!.auth.signInWithOtp({ email: email.trim(), options: { shouldCreateUser: true, emailRedirectTo } });
-    if (error) throw error;
-    update({ status: 'code-sent', email: email.trim(), message: undefined });
+    const from = state.status === 'needs-password' ? 'needs-password' : 'signed-out';
+    const address = email.trim().toLowerCase();
+    const secret = await loginSecret(password, address);
+    if (create) {
+      const { data, error } = await client!.auth.signUp({ email: address, password: secret });
+      if (error) return authFailed(error, from);
+      // An existing confirmed address answers like a new one but without a session.
+      if (!data.session) return update({ status: from, message: data.user?.identities?.length === 0 ? MESSAGES.user_already_exists : MESSAGES.email_not_confirmed });
+    } else {
+      const { error } = await client!.auth.signInWithPassword({ email: address, password: secret });
+      if (error) return authFailed(error, from);
+    }
+    update({ email: address, message: undefined });
+    try {
+      await openWith(password);
+    } catch (e) {
+      // Signed in but the data could not be opened (e.g. the network dropped): the password is asked again.
+      if (key) throw e;
+      update({ ...describe(e), status: 'needs-password' });
+      if (!state.message) update({ message: 'No se pudo conectar con la nube. Revisa la conexión e inténtalo de nuevo.' });
+    }
   });
 }
 
-export function verifyCode(code: string): Promise<void> {
-  return serial(async () => {
-    const { error } = await client!.auth.verifyOtp({ email: state.email!, token: code.trim(), type: 'email' });
-    if (error) return update({ status: 'code-sent', message: 'El código no es válido o ya venció. Pide uno nuevo.' });
-    await afterSignIn();
-  });
-}
-
-export function restart(): void {
-  update({ status: 'signed-out', message: undefined });
-}
-
-/** First device: creates the passphrase and uploads this device's data (after handing over a backup). */
-export function createPassphrase(passphrase: string): Promise<void> {
-  return serial(async () => {
-    if (!isEmptyDataset(getDataset())) download(`inversiones-respaldo-${today()}.json`, JSON.stringify(getDataset()), 'application/json');
+/** Signed in: creates the cloud copy from this device, or opens the one there. A wrong password changes nothing. */
+async function openWith(password: string): Promise<void> {
+  const gen = getGeneration();
+  if ((await remoteVersion()) === 0) {
+    // An empty device never starts the cloud copy: the one with the data does (it would otherwise ask the
+    // device with the data to choose between its data and an empty copy).
+    if (isEmptyDataset(getDataset())) {
+      await client!.auth.signOut({ scope: 'local' });
+      return update({ status: 'signed-out', message: 'Todavía no hay datos en la nube. Entra primero desde el dispositivo que tiene tus datos.' });
+    }
+    download(`inversiones-respaldo-${today()}.json`, JSON.stringify(getDataset()), 'application/json');
     const salt = newSalt();
-    key = await deriveKey(passphrase, salt);
+    key = await deriveKey(password, salt);
     meta = { baseVersion: 0, salt, iterations: KDF_ITERATIONS };
     dirty = true;
     await kvSetMany([[KEY, key], [META, meta], [DIRTY, true]]);
-    update({ status: 'syncing', message: undefined });
-    await check();
-  });
-}
-
-/** Another device: opens the cloud copy with the passphrase. A wrong one changes nothing. */
-export function unlock(passphrase: string): Promise<void> {
-  return serial(async () => {
-    const gen = getGeneration();
-    const row = await remoteRow();
-    const iterations = row.kdf?.iter ?? KDF_ITERATIONS;
-    const k = await deriveKey(passphrase, row.salt, iterations);
-    let data: Dataset;
-    try {
-      data = await openRow(row, k);
-    } catch (e) {
-      if (e instanceof WrongPassphrase) return update({ status: 'needs-passphrase', message: 'Esa frase no abre tus datos. Revísala e inténtalo de nuevo.' });
-      throw e;
-    }
-    key = k;
-    meta = { baseVersion: 0, salt: row.salt, iterations };
+    update({ status: 'syncing' });
+    return check();
+  }
+  const row = await remoteRow();
+  const iterations = row.kdf?.iter ?? KDF_ITERATIONS;
+  if (!validKdf(row.salt, iterations)) throw new Error('La copia en la nube no tiene un formato válido: no se abrió.');
+  const k = await deriveKey(password, row.salt, iterations);
+  let data: Dataset;
+  try {
+    data = await openRow(row, k);
+  } catch (e) {
+    if (e instanceof WrongPassphrase) return update({ status: 'needs-password', message: OTHER_PASSWORD });
+    throw e;
+  }
+  key = k;
+  // This device was linked to this same copy (only its key was lost): it syncs as usual from where it was.
+  if (meta.salt === row.salt && meta.baseVersion > 0) {
+    await kvSet(KEY, key);
+    update({ status: 'syncing' });
+    return check();
+  }
+  meta = { baseVersion: 0, salt: row.salt, iterations };
+  if (isEmptyDataset(getDataset())) {
     await kvSetMany([[KEY, key], [META, meta]]);
-    if (isEmptyDataset(getDataset())) return apply(data, row.version, gen, row);
-    // This device already had data of its own: the user decides which copy stays.
-    dirty = true;
-    await kvSet(DIRTY, true);
-    pending = { data, version: row.version };
-    update({ status: 'conflict', message: undefined, remote: { version: row.version, updatedAt: row.updated_at, device: row.device } });
-  });
+    return apply(data, row.version, gen, row);
+  }
+  // This device already had data of its own: the user decides which copy stays. Marked in the same write
+  // as the key, so a reload in between can never take the cloud copy over it.
+  dirty = true;
+  await kvSetMany([[KEY, key], [META, meta], [DIRTY, true]]);
+  pending = { data, version: row.version };
+  update({ status: 'conflict', message: undefined, remote: { version: row.version, updatedAt: row.updated_at, device: row.device } });
 }
 
 /** Conflict: keep this device's data and upload it. The cloud copy is kept here and handed over first. */

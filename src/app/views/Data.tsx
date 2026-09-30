@@ -133,7 +133,7 @@ export function DataView() {
         </div>
         <p class="small muted" style="margin-top:8px">
           {syncConfigured
-            ? 'Descarga un respaldo cada cierre de mes: la copia en la nube depende de tu frase, y el archivo sirve aunque la olvides.'
+            ? 'Descarga un respaldo cada cierre de mes: la copia en la nube depende de tu contraseña, y el archivo sirve aunque la olvides.'
             : 'Descarga un respaldo cada cierre de mes: los datos viven solo en este navegador y se pierden si borras sus datos.'}
         </p>
       </div>

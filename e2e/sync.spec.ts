@@ -5,13 +5,12 @@ import type { Server } from 'node:http';
 import { readFileSync } from 'node:fs';
 
 /**
- * Cloud sync end to end against an in-memory fake of the Supabase endpoints the app uses (auth OTP, two RPCs,
- * one select). Two "devices" are two origins, so each has its own IndexedDB and session.
+ * Cloud sync end to end against an in-memory fake of the Supabase endpoints the app uses (password sign-up
+ * and sign-in, two RPCs, one select). Two "devices" are two origins, so each has its own IndexedDB and session.
  */
 
 const shots = process.env.SHOTS_DIR;
-const CODE = '123456';
-const PASS = 'una frase de prueba larga';
+const PASS = 'una contraseña de prueba larga';
 
 interface Row { user: string; blob: string; salt: string; kdf: unknown; version: number; device: string; updated_at: string }
 
@@ -22,11 +21,13 @@ class FakeSupabase {
   gate?: Promise<void>;
   /** Simulates a network failure for every request. */
   down = false;
+  /** Simulates a network failure for data requests only (sign-in still works). */
+  dataDown = false;
   /** Seconds an access token lasts (short: every use needs a refresh first). */
   tokenLife = 3600;
   refreshes = 0;
-  /** Where the last emailed sign-in link would send the user back to. */
-  redirect?: string | null;
+  /** The password each account was created with, as the server receives it. */
+  accounts = new Map<string, string>();
 
   session(email: string) {
     const now = Math.floor(Date.now() / 1000);
@@ -50,12 +51,13 @@ class FakeSupabase {
     const user = (req.headers()['authorization'] ?? '').replace(/^Bearer tok:/, '');
     const body = req.postData() ? JSON.parse(req.postData()!) : {};
 
-    if (url.pathname === '/auth/v1/otp') {
-      this.redirect = url.searchParams.get('redirect_to');
-      return json(200, {});
+    if (url.pathname === '/auth/v1/signup') {
+      if (this.accounts.has(body.email)) return json(422, { code: 422, error_code: 'user_already_exists', msg: 'User already registered' });
+      this.accounts.set(body.email, body.password);
+      return json(200, this.session(body.email));
     }
-    if (url.pathname === '/auth/v1/verify') {
-      if (body.token !== CODE) return json(403, { code: 403, error_code: 'otp_expired', msg: 'Token has expired or is invalid' });
+    if (url.pathname === '/auth/v1/token' && url.searchParams.get('grant_type') === 'password') {
+      if (this.accounts.get(body.email) !== body.password) return json(400, { code: 400, error_code: 'invalid_credentials', msg: 'Invalid login credentials' });
       return json(200, this.session(body.email));
     }
     if (url.pathname === '/auth/v1/token') {
@@ -65,6 +67,7 @@ class FakeSupabase {
     if (url.pathname === '/auth/v1/logout') return route.fulfill({ status: 204, headers: cors });
     if (url.pathname === '/auth/v1/user') return json(200, { id: user, email: user, aud: 'authenticated', role: 'authenticated', app_metadata: {}, user_metadata: {} });
     if (!user) return json(401, { message: 'no session' });
+    if (this.dataDown) return route.abort('internetdisconnected');
 
     if (url.pathname === '/rest/v1/rpc/dataset_version') return json(200, this.rows.get(user)?.version ?? 0);
     if (url.pathname === '/rest/v1/rpc/save_dataset') {
@@ -126,12 +129,31 @@ async function device(context: BrowserContext, fake: FakeSupabase, port: number)
   return page;
 }
 
-async function signIn(page: Page, email: string) {
+/** Signs in with an account that exists. */
+async function open(page: Page, email: string, pass = PASS) {
   const card = page.locator('.sync-card');
   await card.getByLabel('Correo').fill(email);
-  await card.getByRole('button', { name: 'Enviarme el enlace' }).click();
-  await card.getByLabel(/Código \(si el correo/).fill(CODE);
+  await card.getByLabel('Contraseña', { exact: true }).fill(pass);
   await card.getByRole('button', { name: 'Entrar' }).click();
+}
+
+/** Creates the account and fills the form up to the last click. */
+async function fillNewAccount(page: Page, email: string, pass = PASS) {
+  const card = page.locator('.sync-card');
+  await expect(card.getByLabel('Correo')).toBeVisible({ timeout: 15_000 });
+  if (await card.getByRole('button', { name: 'Crear cuenta (primera vez)' }).isVisible()) await card.getByRole('button', { name: 'Crear cuenta (primera vez)' }).click();
+  await card.getByLabel('Correo').fill(email);
+  await card.getByLabel('Contraseña', { exact: true }).fill(pass);
+  await card.getByLabel('Repite la contraseña').fill(pass);
+  await card.getByRole('checkbox').check();
+}
+
+/** First device: creates the account and uploads this device's data. */
+async function link(page: Page, email: string, pass = PASS) {
+  await fillNewAccount(page, email, pass);
+  const card = page.locator('.sync-card');
+  await card.getByRole('button', { name: 'Crear cuenta y sincronizar' }).click();
+  await expect(card.getByText('Sincronizado', { exact: true })).toBeVisible({ timeout: 15_000 });
 }
 
 async function addAccount(page: Page, id: string, name: string) {
@@ -142,25 +164,23 @@ async function addAccount(page: Page, id: string, name: string) {
   await expect(form.getByRole('cell', { name, exact: true })).toBeVisible();
 }
 
-test('sync: encrypted upload, second device with the passphrase, changes, and a conflict resolved by hand', async ({ browser }) => {
+test('sync: encrypted upload, second device with the same password, changes, and a conflict resolved by hand', async ({ browser }) => {
   const fake = new FakeSupabase();
   const a = await device(await browser.newContext({ acceptDownloads: true }), fake, ports[0]!);
   const b = await device(await browser.newContext({ acceptDownloads: true }), fake, ports[1]!);
   const cardA = a.locator('.sync-card');
   const cardB = b.locator('.sync-card');
 
-  // Device A: demo data, sign in, create the passphrase. A backup is handed over before the first upload.
+  // Device A: demo data, create the account. A backup is handed over before the first upload.
   await a.getByRole('button', { name: 'Cargar demostración' }).first().click();
   await a.goto(`http://127.0.0.1:${ports[0]}/#/datos`);
   await expect(a.locator('.sync-badge')).toContainText('Sin sincronizar');
-  await signIn(a, 'yo@example.test');
-  await expect(cardA.getByText('Todavía no hay una copia en la nube')).toBeVisible();
-  await cardA.getByLabel('Frase', { exact: true }).fill(PASS);
-  await cardA.getByLabel('Repite la frase').fill(PASS);
-  const activate = cardA.getByRole('button', { name: 'Descargar respaldo y activar' });
+  await fillNewAccount(a, 'yo@example.test');
+  const activate = cardA.getByRole('button', { name: 'Crear cuenta y sincronizar' });
+  await cardA.getByRole('checkbox').uncheck();
   await expect(activate).toBeDisabled();
   await cardA.getByRole('checkbox').check();
-  if (shots) await cardA.screenshot({ path: `${shots}/sync-passphrase.png` });
+  if (shots) await cardA.screenshot({ path: `${shots}/sync-new-account.png` });
   const backup = a.waitForEvent('download');
   await activate.click();
   expect((await backup).suggestedFilename()).toMatch(/^inversiones-respaldo-.*\.json$/);
@@ -170,14 +190,14 @@ test('sync: encrypted upload, second device with the passphrase, changes, and a 
   const stored = atob(fake.rows.get('yo@example.test')!.blob);
   expect(stored).not.toContain('Broker');
   expect(stored).not.toContain('"ledger"');
+  // Nor does the password: the account holds a secret derived from it.
+  expect(fake.accounts.get('yo@example.test')).toHaveLength(44);
+  expect(fake.accounts.get('yo@example.test')).not.toBe(PASS);
 
-  // Device B: empty, signs in, a wrong passphrase changes nothing, the right one brings the data.
-  await signIn(b, 'yo@example.test');
-  await cardB.getByLabel('Tu frase').fill('frase equivocada');
-  await cardB.getByRole('button', { name: 'Abrir mis datos' }).click();
-  await expect(cardB.getByRole('alert')).toContainText('Esa frase no abre tus datos');
-  await cardB.getByLabel('Tu frase').fill(PASS);
-  await cardB.getByRole('button', { name: 'Abrir mis datos' }).click();
+  // Device B: empty; a wrong password changes nothing, the right one brings the data.
+  await open(b, 'yo@example.test', 'contraseña equivocada');
+  await expect(cardB.getByRole('alert')).toContainText('Correo o contraseña incorrectos');
+  await open(b, 'yo@example.test');
   await expect(cardB.getByText('Sincronizado', { exact: true })).toBeVisible({ timeout: 15_000 });
   await expect(b.getByRole('heading', { name: 'Estado de los datos' })).toBeVisible();
   const statA = await a.locator('.card').filter({ has: a.getByRole('heading', { name: 'Estado de los datos' }) }).locator('p').first().textContent();
@@ -217,52 +237,55 @@ test('sync: encrypted upload, second device with the passphrase, changes, and a 
   expect((b as Page & { errors: string[] }).errors).toEqual([]);
 });
 
-test('sync: the emailed link signs in on the page it came back to, and an expired one says so', async ({ browser }) => {
+test('sync: an empty device never starts the cloud copy, and an account is created once', async ({ browser }) => {
   const fake = new FakeSupabase();
-  const ctx = await browser.newContext();
-  const a = await device(ctx, fake, ports[0]!);
+  const a = await device(await browser.newContext({ acceptDownloads: true }), fake, ports[0]!);
   const card = a.locator('.sync-card');
-  await card.getByLabel('Correo').fill('link@example.test');
-  await card.getByRole('button', { name: 'Enviarme el enlace' }).click();
-  await expect(card.getByText('en este mismo navegador')).toBeVisible();
-  expect(fake.redirect).toBe(`http://127.0.0.1:${ports[0]}/`);
+  await fillNewAccount(a, 'vacio@example.test');
+  await card.getByRole('button', { name: 'Crear cuenta y sincronizar' }).click();
+  await expect(card.getByRole('alert')).toContainText('Todavía no hay datos en la nube');
+  await expect(card.getByLabel('Correo')).toBeVisible();
+  expect(fake.rows.size).toBe(0);
 
-  // What Supabase does when the link is opened: back to redirect_to with the session in the hash.
-  const s = fake.session('link@example.test');
-  const hash = new URLSearchParams({ access_token: s.access_token, refresh_token: s.refresh_token, expires_in: String(s.expires_in), expires_at: String(s.expires_at), token_type: 'bearer', type: 'magiclink' });
-  const b = await ctx.newPage();
-  const errors: string[] = [];
-  b.on('pageerror', (e) => errors.push(e.message));
-  await b.goto(`${fake.redirect}#${hash}`);
-  await expect(b.locator('.sync-card').getByLabel('Frase', { exact: true })).toBeVisible({ timeout: 15_000 });
-  await expect(b).toHaveURL(/#\/datos$/);
-  // The tab that asked for the link follows.
-  await expect(card.getByLabel('Frase', { exact: true })).toBeVisible({ timeout: 15_000 });
-
-  const ctx2 = await browser.newContext();
-  await ctx2.route('https://sync.test/**', (r) => fake.handle(r));
-  const c = await ctx2.newPage();
-  await c.goto(`http://127.0.0.1:${ports[1]}/#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired`);
-  await expect(c.locator('.sync-card').getByRole('alert')).toContainText('El enlace no es válido o ya venció');
-  await expect(c.locator('.sync-card').getByLabel('Correo')).toBeVisible();
-  await expect(c).toHaveURL(/#\/datos$/);
-  expect([...(a as Page & { errors: string[] }).errors, ...errors]).toEqual([]);
+  await a.getByRole('button', { name: 'Cargar demostración' }).first().click();
+  await a.goto(`http://127.0.0.1:${ports[0]}/#/datos`);
+  await fillNewAccount(a, 'vacio@example.test');
+  await card.getByRole('button', { name: 'Crear cuenta y sincronizar' }).click();
+  await expect(card.getByRole('alert')).toContainText('Ya hay una cuenta con este correo');
+  await card.getByRole('button', { name: 'Ya tengo cuenta' }).click();
+  await open(a, 'vacio@example.test');
+  await expect(card.getByText('Sincronizado', { exact: true })).toBeVisible({ timeout: 15_000 });
+  expect(fake.rows.get('vacio@example.test')?.version).toBe(1);
+  expect((a as Page & { errors: string[] }).errors).toEqual([]);
 });
 
 test('sync: a device that reopens the app keeps its key and syncs without asking again', async ({ browser }) => {
   const fake = new FakeSupabase();
   const ctx = await browser.newContext({ acceptDownloads: true });
   const a = await device(ctx, fake, ports[0]!);
-  await signIn(a, 'otro@example.test');
+  await a.getByRole('button', { name: 'Cargar demostración' }).first().click();
+  await a.goto(`http://127.0.0.1:${ports[0]}/#/datos`);
+  await link(a, 'otro@example.test');
   const card = a.locator('.sync-card');
-  await card.getByLabel('Frase', { exact: true }).fill(PASS);
-  await card.getByLabel('Repite la frase').fill(PASS);
-  await card.getByRole('checkbox').check();
-  await card.getByRole('button', { name: 'Activar la sincronización' }).click();
-  await expect(card.getByText('Sincronizado', { exact: true })).toBeVisible({ timeout: 15_000 });
   await a.reload();
   await expect(a.locator('.sync-badge')).toContainText('Sincronizado', { timeout: 15_000 });
-  await expect(card.getByLabel('Tu frase')).toHaveCount(0);
+  await expect(card.getByLabel(/Contraseña/)).toHaveCount(0);
+
+  // Without the key (site data partly cleared) but still signed in: only the password is asked.
+  await a.evaluate(() => new Promise((r) => {
+    const q = indexedDB.open('investment-tracker');
+    q.onsuccess = () => {
+      const t = q.result.transaction('kv', 'readwrite');
+      t.objectStore('kv').delete('sync:key');
+      t.oncomplete = r;
+    };
+  }));
+  await a.reload();
+  await expect(card.getByLabel('Contraseña de otro@example.test')).toBeVisible({ timeout: 15_000 });
+  await card.getByLabel('Contraseña de otro@example.test').fill(PASS);
+  await card.getByRole('button', { name: 'Abrir mis datos' }).click();
+  await expect(card.getByText('Sincronizado', { exact: true })).toBeVisible({ timeout: 15_000 });
+  expect(fake.rows.get('otro@example.test')?.version).toBe(1);
 });
 
 test('without sync configured the app shows nothing of it', async ({ page }) => {
@@ -271,23 +294,6 @@ test('without sync configured the app shows nothing of it', async ({ page }) => 
   await expect(page.locator('.sync-card')).toHaveCount(0);
   await expect(page.locator('.sync-badge')).toHaveCount(0);
 });
-
-async function link(page: Page, email: string) {
-  await signIn(page, email);
-  const card = page.locator('.sync-card');
-  await card.getByLabel('Frase', { exact: true }).fill(PASS);
-  await card.getByLabel('Repite la frase').fill(PASS);
-  await card.getByRole('checkbox').check();
-  await card.getByRole('button', { name: /activar/ }).click();
-  await expect(card.getByText('Sincronizado', { exact: true })).toBeVisible({ timeout: 15_000 });
-}
-
-async function open(page: Page, email: string) {
-  await signIn(page, email);
-  const card = page.locator('.sync-card');
-  await card.getByLabel('Tu frase').fill(PASS);
-  await card.getByRole('button', { name: 'Abrir mis datos' }).click();
-}
 
 test('sync: an edit made while a cloud copy is downloading is never overwritten', async ({ browser }) => {
   const fake = new FakeSupabase();
@@ -385,12 +391,59 @@ test('sync: opening the app offline with an expired session keeps the key and sy
   const card = a.locator('.sync-card');
   await expect(a.locator('.sync-badge')).toHaveAttribute('aria-label', /Conectando/);
   await expect(a.locator('.sync-badge')).toHaveAttribute('aria-label', /Sin conexión|Error/, { timeout: 45_000 });
-  await expect(card.getByLabel('Tu frase')).toHaveCount(0);
+  await expect(card.getByLabel(/Contraseña/)).toHaveCount(0);
   await expect(card.getByLabel('Correo')).toHaveCount(0);
   fake.down = false;
   // No click: the app recovers on its own once the auth client lets the refresh through.
   await expect(card.getByText('Sincronizado', { exact: true })).toBeVisible({ timeout: 100_000 });
-  await expect(card.getByLabel('Tu frase')).toHaveCount(0);
+  await expect(card.getByLabel(/Contraseña/)).toHaveCount(0);
   expect(fake.refreshes).toBeGreaterThan(0);
   expect(fake.rows.get('yo@example.test')?.version).toBe(2);
+});
+
+test('sync: a cloud copy saved with another password is never opened nor replaced on its own', async ({ browser }) => {
+  const fake = new FakeSupabase();
+  const a = await device(await browser.newContext({ acceptDownloads: true }), fake, ports[0]!);
+  await a.getByRole('button', { name: 'Cargar demostración' }).first().click();
+  await a.goto(`http://127.0.0.1:${ports[0]}/#/datos`);
+  await link(a, 'otra@example.test', 'otra contraseña distinta');
+  const c = await device(await browser.newContext(), fake, ports[1]!);
+  await fillNewAccount(c, 'yo@example.test');
+  await c.locator('.sync-card').getByRole('button', { name: 'Crear cuenta y sincronizar' }).click();
+  await expect(c.locator('.sync-card').getByRole('alert')).toContainText('Todavía no hay datos en la nube');
+  // yo@'s account exists, and its cloud copy is one sealed under another password.
+  fake.rows.set('yo@example.test', { ...fake.rows.get('otra@example.test')!, user: 'yo@example.test' });
+  const b = await device(await browser.newContext({ acceptDownloads: true }), fake, ports[1]!);
+  await open(b, 'yo@example.test');
+  const card = b.locator('.sync-card');
+  await expect(card.getByRole('alert')).toContainText('Tu contraseña no abre la copia que hay en la nube');
+  await expect(card.getByLabel('Contraseña de yo@example.test')).toBeVisible();
+  expect(fake.rows.get('yo@example.test')?.version).toBe(1);
+  expect(fake.uploads).toHaveLength(1);
+});
+
+test('sync: without network the sign-in says so, and a failure after signing in asks the password again', async ({ browser }) => {
+  const fake = new FakeSupabase();
+  const a = await device(await browser.newContext({ acceptDownloads: true }), fake, ports[0]!);
+  await a.getByRole('button', { name: 'Cargar demostración' }).first().click();
+  await a.goto(`http://127.0.0.1:${ports[0]}/#/datos`);
+  const card = a.locator('.sync-card');
+  fake.down = true;
+  await fillNewAccount(a, 'yo@example.test');
+  await card.getByRole('button', { name: 'Crear cuenta y sincronizar' }).click();
+  await expect(card.getByRole('alert')).toContainText('No se pudo conectar con la nube');
+  await expect(card.getByLabel('Correo')).toBeVisible();
+  expect(fake.accounts.size).toBe(0);
+
+  fake.down = false;
+  fake.dataDown = true;
+  await fillNewAccount(a, 'yo@example.test');
+  await card.getByRole('button', { name: 'Crear cuenta y sincronizar' }).click();
+  await expect(card.getByLabel('Contraseña de yo@example.test')).toBeVisible();
+  await expect(card.getByRole('alert')).toContainText('No se pudo conectar');
+  fake.dataDown = false;
+  await card.getByLabel('Contraseña de yo@example.test').fill(PASS);
+  await card.getByRole('button', { name: 'Abrir mis datos' }).click();
+  await expect(card.getByText('Sincronizado', { exact: true })).toBeVisible({ timeout: 15_000 });
+  expect(fake.rows.get('yo@example.test')?.version).toBe(1);
 });
