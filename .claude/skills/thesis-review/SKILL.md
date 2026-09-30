@@ -47,6 +47,7 @@ Indicadores shows what research providers say about each holding (`Asset.moats`)
    - Keep ratings from providers you didn't check this time. Replace a provider's rating only with a newer one.
 
 3. **Fundamentals** (only if the user asked).
+   - US stocks that file 10-K/10-Q get their ratios from the SEC automatically every month (`Asset.sec`, written by the app): don't copy those by hand. Copy only what the SEC figures lack (their `gaps`, e.g. a company without operating income) and the stocks it doesn't cover (non-US listings; for 20-F filers, per-share and price-based figures).
    - Take them from a source that states them: the company's annual report, a SEC filing (EDGAR), or a provider page you can read without logging in.
    - `fundamentals` needs `asOf` (the period end or publication date) and `source`.
    - If you compute a ratio from filed figures, name the filing and the formula in `source`. Example: "SEC 10-K FY2025; netMargin = NetIncomeLoss / Revenues".
@@ -57,7 +58,7 @@ Indicadores shows what research providers say about each holding (`Asset.moats`)
    ```json
    { "accounts": [], "assets": [ <asset objects> ] }
    ```
-   - Copy each asset object **complete** from the backup and change only `moats` and, if asked, `fundamentals`. The import replaces the whole asset, so a missing field would be erased.
+   - Copy each asset object **complete** from the backup (including `sec`) and change only `moats` and, if asked, `fundamentals`. The import replaces the whole asset, so a missing field would be erased.
    - Include only the assets you changed.
 
 5. **Validate:** `node scripts/checks.ts assets <backup.json> tesis-….json`.

@@ -110,3 +110,66 @@ test('opened from disk, the button says it works on the published site', async (
   await expect(page.locator('.refresh-card')).toContainText('funciona en la versión publicada');
   await expect(page.locator('.refresh-card').getByRole('button', { name: 'Traer precios del cierre' })).toHaveCount(0);
 });
+
+test('Fundamentales de la SEC: read on opening the published app, shown with their source, and a stock the SEC does not list says so', async ({ page }, info) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('console', (m) => {
+    if (/Content Security Policy/.test(m.text())) errors.push(m.text());
+  });
+  const M = 1e6;
+  const f = (start: string | undefined, end: string, val: number, form = '10-Q') => ({ ...(start ? { start } : {}), end, val, form, filed: form === '10-K' ? '2026-02-10' : '2026-07-30', accn: '0000000001-26-000002' });
+  const flow = (fy: number, h1: number, h0: number) => [f('2025-01-01', '2025-12-31', fy, '10-K'), f('2026-01-01', '2026-06-30', h1), f('2025-01-01', '2025-06-30', h0)];
+  const asked: string[] = [];
+  // The site's function, as it relays the SEC (the demo's companies are fictional).
+  await page.route(`${origin}/api/fundamentals**`, (route) => {
+    const t = new URL(route.request().url()).searchParams.getAll('t');
+    asked.push(...t);
+    const out: Record<string, unknown> = {};
+    for (const x of t) {
+      out[x] =
+        x === 'SMPL'
+          ? {
+              cik: 1,
+              entity: 'Sample Corp',
+              facts: {
+                'us-gaap': {
+                  Revenues: { USD: [...flow(1000 * M, 600 * M, 500 * M), f('2020-01-01', '2020-12-31', 500 * M, '10-K')] },
+                  OperatingIncomeLoss: { USD: flow(200 * M, 130 * M, 100 * M) },
+                  DepreciationDepletionAndAmortization: { USD: flow(50 * M, 30 * M, 25 * M) },
+                  NetIncomeLoss: { USD: flow(150 * M, 90 * M, 80 * M) },
+                  EarningsPerShareDiluted: { 'USD/shares': flow(1.5, 0.9, 0.8) },
+                },
+              },
+            }
+          : { error: `La SEC no tiene una empresa con el símbolo ${x} (los ETF y las acciones que no cotizan en EE. UU. no están).` };
+    }
+    return json(route, out);
+  });
+  await page.route(`${origin}/api/quotes**`, (route) => json(route, {}));
+
+  await loadDemo(page, `${origin}/`);
+  await page.getByRole('link', { name: 'Indicadores' }).click();
+  await page.getByRole('button', { name: 'Fundamentales' }).click();
+  const card = page.locator('.sec-card');
+  await expect(card.getByRole('status').filter({ hasText: 'Fundamentales actualizados' })).toContainText('Fundamentales actualizados: 2 acciones, sin cambios en las cifras.', { timeout: 10_000 });
+  expect(asked.sort()).toEqual(['ACME', 'SMPL']);
+  await expect(card).toContainText('2 de 2 acciones, leídos el');
+
+  // Net margin 160 / 1100, with its source on hover; what the filings lack stays missing, with why.
+  const row = page.getByRole('row').filter({ hasText: 'Sample Corp' });
+  await expect(row.locator('td[title^="SEC · 10-Q 12 meses al 30 jun 2026"]').first()).toBeVisible();
+  await expect(row).toContainText('14,5');
+  await expect(row).toContainText('SEC · 30 jun 2026');
+  await expect(row.locator('td[title*="SEC: no reporta su deuda"]').first()).toBeVisible();
+  await card.locator('summary', { hasText: 'De dónde sale cada cifra' }).click();
+  await expect(card.getByRole('row').filter({ hasText: 'Acme Industries' })).toContainText('no tiene una empresa con el símbolo ACME');
+  await expect(card.getByRole('link', { name: /10-Q presentado el 30 jul 2026/ })).toHaveAttribute('href', 'https://www.sec.gov/Archives/edgar/data/1/000000000126000002/');
+  if (shots) await page.screenshot({ path: `${shots}/sec-${info.project.name}.png`, fullPage: true });
+
+  // Read again this month: only on request, and it lists nothing new.
+  await card.getByRole('button', { name: 'Actualizar ahora' }).click();
+  await expect(card.getByRole('status').filter({ hasText: 'Fundamentales actualizados' })).toContainText('sin cambios en las cifras');
+  expect(asked).toHaveLength(4);
+  expect(errors).toEqual([]);
+});

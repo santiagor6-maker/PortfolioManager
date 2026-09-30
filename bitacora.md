@@ -12,9 +12,9 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
   1. Netlify.
   2. Supabase con datos cifrados en el navegador.
   3. Precios del cierre automáticos (Yahoo + TRM): hecho.
-  4. Fundamentales mensuales desde SEC EDGAR al abrir la app.
+  4. Fundamentales mensuales desde SEC EDGAR al abrir la app: hecho; falta que el usuario ponga `SEC_USER_AGENT` en Netlify.
 - Netlify `portfoliomanager-sr` publica esta rama en cada push.
-- Sincronización: se pasó a correo + contraseña. El usuario borra el proyecto Supabase viejo y crea uno propio; le toca correr el SQL de configuración, desactivar «Confirm email», poner URL y clave en Netlify, y desactivar «Allow new users to sign up» tras crear su cuenta.
+- Sincronización con correo + contraseña funcionando (proyecto Supabase propio del usuario, creado por él).
 - «Traer precios del cierre» (etapa 3) con Yahoo vía la función `/api/quotes` de Netlify y la TRM oficial: probado por el usuario en el sitio, Yahoo responde desde Netlify.
 - Decisión pendiente: el historial tiene las tasas EUR/CAD de horario de verano británico fechadas un día antes (mismo valor, fecha −1); se corrige en los datos si el usuario quiere.
 - Pendiente del usuario:
@@ -26,6 +26,11 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
 - Mejora anotada: el aviso de TRM del Cierre nombra el primer mes pendiente, no el mes que se está cerrando.
 
 ## Registro
+
+**2026-09-30 — Fundamentales de la SEC en Indicadores**
+- Etapa 4: la función `/api/fundamentals` trae de EDGAR companyfacts solo los conceptos necesarios (contacto en `SEC_USER_AGENT`); `src/data/sec.ts` arma 12 meses (anual + año corrido − año anterior) y exige que cada cifra llegue al último periodo, o queda faltante con el motivo. Se guardan en `Asset.sec`, aparte de lo copiado a mano; Indicadores las muestra encima, con la fuente en cada celda. Se leen solas una vez al mes.
+- Validado con datos reales de las 20 acciones de EE. UU. y extranjeras del usuario; el 10-K de Microsoft cuadra línea por línea. Las extranjeras (20-F) no muestran cifras por acción ni con precio (ADR ≠ acción local).
+- `finance-reviewer`: tres pasadas. Corregidos el P/E de un 20-F en USD, el EPS tras un split (y cuando no se puede verificar), la taxonomía tras pasar a IFRS, conceptos con arrendamientos o caja restringida, la fecha de corte pasada y la fuente por cifra. 211 unit + 37 e2e.
 
 **2026-09-30 — Entrar con correo y contraseña**
 - Los enlaces por correo fallaban: los registros de Supabase muestran que un revisor de correo usaba cada enlace segundos antes del clic del usuario. Se reemplazan por correo + contraseña, con una sola contraseña: Supabase recibe un secreto derivado (PBKDF2 con sal por correo) y los datos se cifran con otra clave derivada, así que la nube sigue sin poder leerlos.

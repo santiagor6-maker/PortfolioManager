@@ -584,3 +584,7 @@ table.heatmap td.hm.p4, table.heatmap td.hm.n4 { color: #ffffff; }
 .refresh-progress { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 10px 0; }
 .refresh-card .table-wrap { margin: 8px 0; }
 .refresh-card.compact { margin-top: 10px; }
+.sec-card { margin: 4px 0 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.sec-card .actions { justify-content: space-between; }
+.sec-card details { margin-top: 8px; }
+.sec-card .table-wrap { margin: 8px 0; }

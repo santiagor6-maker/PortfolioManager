@@ -83,6 +83,57 @@ export interface Asset {
   fundamentals?: Fundamentals;
   /** Economic-moat ratings published by research providers (not the user's own call). */
   moats?: MoatRating[];
+  /** Figures from the company's filings with the SEC, refreshed by the app (kept apart from `fundamentals`). */
+  sec?: SecData;
+}
+
+/** The reported figures the SEC ratios are computed from (see src/data/sec.ts). */
+export type SecInput =
+  | 'revenue'
+  | 'revenueFY'
+  | 'revenueFY5'
+  | 'operatingIncome'
+  | 'da'
+  | 'netIncome'
+  | 'eps'
+  | 'pretax'
+  | 'tax'
+  | 'debt'
+  | 'cash'
+  | 'equity'
+  | 'equityPrior'
+  | 'shares';
+
+/** One reported figure and where it comes from: concept(s), filing, period. Amounts are decimal strings. */
+export interface SecValue {
+  value: string;
+  /** XBRL concept, or several joined with " + " when added up. */
+  concept: string;
+  form: string;
+  start?: string;
+  end: string;
+  filed: string;
+  /** Accession number of the filing. */
+  accn: string;
+  /** Last twelve months built from the annual report and the year-to-date figures. */
+  ttm?: boolean;
+}
+
+/** A company's reported figures as read from SEC EDGAR on `asOf`, or why there are none. */
+export interface SecData {
+  asOf: string;
+  cik?: number;
+  entity?: string;
+  error?: string;
+  taxonomy?: 'us-gaap' | 'ifrs-full';
+  /** Reporting currency. */
+  currency?: string;
+  /** Only annual reports (a foreign filer). */
+  annualOnly?: boolean;
+  /** End of the latest period the figures cover. */
+  period?: string;
+  values?: Partial<Record<SecInput, SecValue>>;
+  gaps?: Partial<Record<SecInput, string>>;
 }
 
 /** An economic-moat rating as a research provider publishes it, with its date and link. */

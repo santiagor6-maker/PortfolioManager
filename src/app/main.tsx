@@ -1,7 +1,7 @@
 import { render } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import './styles.css';
-import { useDataset, usePref } from './store.ts';
+import { ready, useDataset, usePref } from './store.ts';
 import { Summary } from './views/Summary.tsx';
 import { Positions } from './views/Positions.tsx';
 import { Transactions } from './views/Transactions.tsx';
@@ -13,6 +13,7 @@ import { Dividends } from './views/Dividends.tsx';
 import { Compare } from './views/Compare.tsx';
 import { DataView } from './views/Data.tsx';
 import { initSync, syncConfigured, useSync } from './sync.ts';
+import { autoSec } from './views/SecCard.tsx';
 import { STATUS_LABEL } from './views/SyncCard.tsx';
 
 const ROUTES = [
@@ -125,3 +126,4 @@ function App() {
 
 render(<App />, document.getElementById('app')!);
 void initSync();
+void ready.then(autoSec);

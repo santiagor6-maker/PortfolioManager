@@ -325,6 +325,7 @@ export function checkAssetPatch(d: Dataset, json: string, today: IsoDate): { fin
       }
       if (k === 'moats') findings.push(...checkMoats(after, before, ref, today));
       if (k === 'fundamentals') findings.push(...checkFundamentals(after, ref, today));
+      if (k === 'sec') findings.push(err('SEC', ref, '"sec" lo escribe la app al leer la SEC: cópialo tal como está en el respaldo, sin cambios'));
     }
   }
   for (const bm of b.benchmarks ?? []) {

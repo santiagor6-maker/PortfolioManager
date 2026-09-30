@@ -2,7 +2,9 @@ import { Decimal, ZERO } from '../domain/money.ts';
 import type { Ccy } from '../domain/money.ts';
 import type { IsoDate } from '../domain/dates.ts';
 import type { PricePoint } from '../domain/prices.ts';
-import type { Fundamentals, MoatRating } from '../domain/types.ts';
+import type { Fundamentals, MoatRating, SecData } from '../domain/types.ts';
+import { secFundamentals } from '../data/sec.ts';
+import type { SecField, SecResult } from '../data/sec.ts';
 import type { ValuationMethod } from '../domain/valuation.ts';
 import { positionRows } from './analysis.ts';
 import type { Context } from './analysis.ts';
@@ -31,7 +33,12 @@ export interface IndicatorRow {
   region?: string;
   ideaSource?: string;
   note?: string;
+  /** What the user copied by hand, with the SEC's figures over it where the filings give them. */
   f: Fundamentals;
+  /** The SEC's figures (see src/data/sec.ts) and the fields of `f` they fill. */
+  sec?: SecResult & { data: SecData; fields: SecField[] };
+  /** What the user copied by hand, as stored. */
+  manual: Fundamentals;
   moats: MoatRating[];
   /** The moat category used for the composition: see `moatOf`. */
   moat?: MoatRating['rating'];
@@ -40,6 +47,17 @@ export interface IndicatorRow {
 /** Morningstar's category when there is one (the reference for moat ratings), else the first provider that gives a category. */
 export function moatOf(ratings: readonly MoatRating[]): MoatRating['rating'] {
   return (ratings.find((m) => m.source === 'Morningstar' && m.rating) ?? ratings.find((m) => m.rating))?.rating;
+}
+
+/**
+ * The SEC's ratios take the place of the hand-copied ones for the fields the filings give (they are dated
+ * and sourced); the rest (size, style, stars, and any ratio the filings lack) stays as copied.
+ */
+export function withSec(manual: Fundamentals, data: SecData | undefined, ccy: Ccy, price: PricePoint | undefined, asOf: IsoDate): Pick<IndicatorRow, 'f' | 'sec' | 'manual'> {
+  if (!data || data.error) return { f: manual, manual };
+  const r = secFundamentals(data, ccy, price?.close, asOf);
+  const fields = Object.keys(r.f) as SecField[];
+  return { f: { ...manual, ...r.f }, sec: { ...r, data, fields }, manual };
 }
 
 const upsideTo = (t: Decimal | undefined, p: PricePoint | undefined) => (t && p && !p.close.isZero() ? t.div(p.close).minus(1).toNumber() : undefined);
@@ -80,7 +98,7 @@ export function indicatorRows(ctx: Context, ccy: Ccy, asOf: IsoDate, buckets: re
       region: a.region,
       ideaSource: a.ideaSource,
       note: a.note,
-      f: a.fundamentals ?? {},
+      ...withSec(a.fundamentals ?? {}, a.sec, a.ccy, price, asOf),
       moats: a.moats ?? [],
       moat: moatOf(a.moats ?? []),
     });

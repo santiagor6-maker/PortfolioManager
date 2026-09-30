@@ -5,12 +5,15 @@ import { bucketLabel } from '../analysis.ts';
 import { contextOf } from '../context.ts';
 import { Filters, useFilters } from '../components/Filters.tsx';
 import { Scatter } from '../components/Scatter.tsx';
-import { date, money, moneyShort, parseNumber, pct, price } from '../format.ts';
+import { date, money, moneyShort, parseNumber, pct, price, today } from '../format.ts';
+import { daysBetween } from '../../domain/dates.ts';
 import { breakdown, concentration, indicatorRows, weightedUpside } from '../indicators.ts';
 import type { IndicatorRow, Slice } from '../indicators.ts';
 import { upsertAsset } from '../mutations.ts';
 import { queryParam } from '../route.ts';
 import { getDataset, setDataset, useDataset, usePref } from '../store.ts';
+import { SecCard } from './SecCard.tsx';
+import type { SecField } from '../../data/sec.ts';
 
 const CAP: Record<string, string> = { large: 'Grande', mid: 'Mediana', small: 'Pequeña' };
 const STYLE: Record<string, string> = { value: 'Valor', blend: 'Mixto', growth: 'Crecimiento' };
@@ -39,6 +42,25 @@ const sign = (x: number | undefined) => (x === undefined ? '' : x > 0 ? 'pos' : 
 const dec = (s: string | undefined) => (s === undefined ? undefined : Number(s));
 const multiple = (s: string | undefined) => (s === undefined ? '—' : `${new Intl.NumberFormat('es-CO', { maximumFractionDigits: 1 }).format(Number(s))}x`);
 const plain = (s: string | undefined, digits = 2) => (s === undefined ? '—' : new Intl.NumberFormat('es-CO', { maximumFractionDigits: digits }).format(Number(s)));
+/** Where a fundamentals figure comes from, for its tooltip: the SEC filings it uses, the hand copy, or why it is missing. */
+function sourceOf(r: IndicatorRow, k: SecField): string | undefined {
+  const s = r.sec;
+  if (s?.fields.includes(k)) {
+    const parts = (s.inputs[k] ?? [])
+      .map((i) => s.data.values?.[i])
+      .filter((v) => v !== undefined)
+      .map((v) => `${v.form} ${v.ttm ? '12 meses al' : v.start ? 'año al' : 'al'} ${date(v.end)}`);
+    const price = (k === 'pe' || k === 'evEbitda') && r.price ? ` · precio del ${date(r.price.date)}` : '';
+    return `SEC · ${[...new Set(parts)].join(', ')}${price}`;
+  }
+  const manual = r.f[k] !== undefined ? `Copiado a mano${r.f.source ? ` de ${r.f.source}` : ''}${r.f.asOf ? ` al ${date(r.f.asOf)}` : ''}` : undefined;
+  const why = s?.missing[k] ? `SEC: ${s.missing[k]}` : undefined;
+  return [manual, why].filter(Boolean).join(' · ') || undefined;
+}
+
+/** A reported period older than this is flagged: a newer filing should exist (a quarter, or a year for a foreign filer). */
+const oldReport = (r: IndicatorRow) => daysBetween(r.sec!.data.period!, today()) > (r.sec!.data.annualOnly ? 480 : 150);
+
 const hasFundamentals = (f: Fundamentals) => Object.keys(f).some((k) => k !== 'asOf' && k !== 'source');
 
 /** One dimension of the composition as weight bars; a click filters the table to that slice. */
@@ -391,7 +413,8 @@ export function Indicators() {
   const high = weightedUpside(rows, 'upsideHigh');
   const conc = concentration(rows);
   const top = rows[0];
-  const undated = rows.filter((r) => hasFundamentals(r.f) && !r.f.asOf);
+  // Hand-copied figures still on show (not replaced by the SEC's) without a date.
+  const undated = rows.filter((r) => !r.manual.asOf && Object.keys(r.manual).some((k) => !['asOf', 'source'].includes(k) && !r.sec?.fields.includes(k as SecField)));
   const cols = view === 'tesis' ? 12 : 13;
 
   return (
@@ -492,6 +515,7 @@ export function Indicators() {
             </button>
           </div>
         )}
+        {view === 'fundamentales' && <SecCard />}
         {undated.length > 0 && view === 'fundamentales' && (
           <div class="notice warn" role="status">
             Fundamentales sin fecha: {undated.map((r) => r.name).join(', ')}. Ábrelos y completa «Datos al» para saber qué tan vigentes son.
@@ -583,14 +607,38 @@ export function Indicators() {
                       ) : (
                         <>
                           {(['salesGrowth5y', 'ebitdaMargin', 'netMargin', 'roic', 'roe'] as const).map((k) => (
-                            <td class={`n ${sign(dec(r.f[k]))}`}>{pct(dec(r.f[k]))}</td>
+                            <td class={`n ${sign(dec(r.f[k]))}`} title={sourceOf(r, k)}>
+                              {pct(dec(r.f[k]))}
+                            </td>
                           ))}
-                          <td class="n">{multiple(r.f.pe)}</td>
-                          <td class="n">{multiple(r.f.evEbitda)}</td>
-                          <td class="n">{plain(r.f.eps)}</td>
-                          <td class="n">{pct(dec(r.f.debtToCapital))}</td>
-                          <td class="n">{plain(r.f.netDebt, 0)}</td>
-                          <td class="small">{r.f.asOf ? date(r.f.asOf) : hasFundamentals(r.f) ? <span class="stale">sin fecha</span> : <span class="muted">—</span>}</td>
+                          <td class="n" title={sourceOf(r, 'pe')}>
+                            {multiple(r.f.pe)}
+                          </td>
+                          <td class="n" title={sourceOf(r, 'evEbitda')}>
+                            {multiple(r.f.evEbitda)}
+                          </td>
+                          <td class="n" title={sourceOf(r, 'eps')}>
+                            {plain(r.f.eps)}
+                          </td>
+                          <td class="n" title={sourceOf(r, 'debtToCapital')}>
+                            {pct(dec(r.f.debtToCapital))}
+                          </td>
+                          <td class="n" title={sourceOf(r, 'netDebt')}>
+                            {plain(r.f.netDebt, 0)}
+                          </td>
+                          <td class="small">
+                            {r.sec ? (
+                              <span class={oldReport(r) ? 'stale' : ''} title={oldReport(r) ? 'Debería haber un reporte más reciente: aún no está en los datos de la SEC' : undefined}>
+                                SEC · {date(r.sec.data.period!)}
+                              </span>
+                            ) : r.f.asOf ? (
+                              date(r.f.asOf)
+                            ) : hasFundamentals(r.f) ? (
+                              <span class="stale">sin fecha</span>
+                            ) : (
+                              <span class="muted">—</span>
+                            )}
+                          </td>
                         </>
                       )}
                     </tr>
@@ -609,7 +657,7 @@ export function Indicators() {
         </div>
         <p class="small muted" style="margin-top:8px">
           Peso sobre el valor al {date(f.asOf)} en {f.ccy} (cada acción sumando todas sus cuentas). Potencial = objetivo / precio de hoy − 1, en la moneda de la acción. Potencial ponderado: promedio por peso de
-          las acciones con objetivo y precio. Foso económico: la calificación que publica cada fuente (Morningstar: amplio, estrecho o ninguno; GuruFocus: Moat Score de 0 a 10), con su fecha y enlace; la composición usa la de Morningstar (u otra fuente con categoría si Morningstar no la califica). Estilo, estrellas y fundamentales son datos que copias a mano: guárdalos con su fecha y fuente. Valor exacto del portafolio:{' '}
+          las acciones con objetivo y precio. Foso económico: la calificación que publica cada fuente (Morningstar: amplio, estrecho o ninguno; GuruFocus: Moat Score de 0 a 10), con su fecha y enlace; la composición usa la de Morningstar (u otra fuente con categoría si Morningstar no la califica). Estilo y estrellas son datos que copias a mano: guárdalos con su fecha y fuente. Los fundamentales de las acciones de EE. UU. salen de sus reportes a la SEC (pasa el mouse por una cifra para ver de dónde sale); los demás, de lo que copies a mano. Valor exacto del portafolio:{' '}
           {money(total, f.ccy)}.
         </p>
       </div>
