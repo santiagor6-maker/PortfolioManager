@@ -354,6 +354,9 @@ button.big { padding: 10px 20px; font-size: 15.5px; }
 .result-hero .figure { font-size: 36px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; margin: 2px 0; }
 .result-hero .chips { display: flex; gap: 8px; flex-wrap: wrap; }
 .result-hero .chip { background: rgba(255, 255, 255, 0.1); color: rgba(255, 255, 255, 0.75); }
+.result-hero .fx-split { margin-top: 4px; }
+table.result .bench-name { display: block; font-size: 11px; white-space: normal; max-width: 180px; margin-left: auto; }
+.result-hero .fx-split strong { font-family: var(--mono); }
 .result-hero .chip strong { color: #fff; }
 .notice.cta { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 a.btn { display: inline-block; background: var(--btn); color: var(--btn-ink); text-decoration: none; font-weight: 700; font-size: 13px; padding: 7px 14px; border-radius: var(--radius); white-space: nowrap; }

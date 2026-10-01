@@ -26,6 +26,8 @@ export interface ValuedPosition {
   /** Remaining cost basis in the requested currency (converted at the valuation date). */
   cost: Decimal;
   method: ValuationMethod;
+  /** Currency the value was taken in before converting: the price's for a market close, the account's for a manual value or cost. */
+  valuedIn: Ccy;
   /** Date of the price or valuation used. */
   priceDate?: IsoDate;
   priceAgeDays?: number;
@@ -68,6 +70,7 @@ export function valuePosition(book: Book, p: Position, date: IsoDate, ccy: Ccy):
         value: book.fx.convert(p.qty.times(px.close), px.ccy, ccy, date),
         cost,
         method: 'market',
+        valuedIn: px.ccy,
         priceDate: px.date,
         priceAgeDays: daysBetween(px.date, date),
         estimated: false,
@@ -80,12 +83,13 @@ export function valuePosition(book: Book, p: Position, date: IsoDate, ccy: Ccy):
       value: book.fx.convert(p.valuation.value.minus(owed), accCcy, ccy, date),
       cost,
       method: 'manual',
+      valuedIn: accCcy,
       priceDate: p.valuation.date,
       priceAgeDays: daysBetween(p.valuation.date, date),
       estimated: p.valuation.estimated,
     };
   }
-  return { ...base, value: cost, cost, method: 'cost', estimated: true };
+  return { ...base, value: cost, cost, method: 'cost', valuedIn: accCcy, estimated: true };
 }
 
 export function valueHoldings(

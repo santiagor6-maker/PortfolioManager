@@ -223,7 +223,7 @@ function row(ctx: Context, p: Position, ccy: Ccy, asOf: IsoDate, realized: Decim
   const account = ctx.book.accounts.get(p.account)!;
   const base = { name: asset?.name ?? p.asset, accountName: account.name, realized, income, open: p.open };
   if (!p.open) {
-    return { ...base, account: p.account, asset: p.asset, bucket: asset?.bucket ?? '', qty: p.qty, value: ZERO, cost: ZERO, method: 'market', estimated: false, unrealized: ZERO };
+    return { ...base, account: p.account, asset: p.asset, bucket: asset?.bucket ?? '', qty: p.qty, value: ZERO, cost: ZERO, method: 'market', valuedIn: account.ccy, estimated: false, unrealized: ZERO };
   }
   const v = valuePosition(ctx.book, p, asOf, ccy);
   const local = valuePosition(ctx.book, p, asOf, account.ccy);

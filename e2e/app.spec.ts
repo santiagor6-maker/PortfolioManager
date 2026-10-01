@@ -118,6 +118,11 @@ test('month-end close: enter a value, see the month result, close the month', as
   await expect(page.getByText('Listo para cerrar')).toBeVisible();
   await expect(page.locator('table.result tr.k-total')).toContainText('TOTAL');
   await expect(page.locator('table.result tr.k-subtotal')).toContainText('Subtotal sin inmobiliario');
+  // The month's gain split: the investments themselves and the exchange rate (the US holdings move with the TRM in pesos).
+  await expect(page.locator('.result-hero .fx-split')).toContainText(/De la inversión .+ · efecto cambiario .+/);
+  await expect(page.locator('table.result thead')).toContainText('De la inversión');
+  await expect(page.locator('table.result thead')).toContainText('Efecto cambiario');
+  await expect(page.locator('table.result tr.k-class').filter({ hasText: 'Acciones USD' }).locator('td').nth(4)).not.toHaveText('');
   if (shots) await page.screenshot({ path: `${shots}/cierre-${info.project.name}.png`, fullPage: true });
   await page.getByRole('button', { name: 'Cerrar jun 2025' }).click();
   await expect(page.getByText(/Cerrado el/).first()).toBeVisible();

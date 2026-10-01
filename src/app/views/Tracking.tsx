@@ -9,10 +9,11 @@ import { REAL_ESTATE, tracking, xirrToDate, yearToDate } from '../tracking.ts';
 import type { Cell, TrackRow, Tracking as TrackingData } from '../tracking.ts';
 import { useDataset, usePref } from '../store.ts';
 
-type Metric = 'value' | 'gain' | 'r' | 'flow';
+type Metric = 'value' | 'gain' | 'fx' | 'r' | 'flow';
 const METRICS: { id: Metric; label: string }[] = [
   { id: 'value', label: 'Valor' },
   { id: 'gain', label: 'Ganancia del mes' },
+  { id: 'fx', label: 'Efecto cambiario' },
   { id: 'r', label: 'Rend. del mes' },
   { id: 'flow', label: 'Aportes netos' },
 ];
@@ -42,7 +43,7 @@ export function heat(r: number | null): string | undefined {
 const sign = (x: number | null | undefined) => (x === null || x === undefined ? '' : x > 0 ? 'pos' : x < 0 ? 'neg' : '');
 
 function cellView(metric: Metric, c: Cell, ccy: string, kind: TrackRow['kind']): { text: string; cls: string; style?: string; title: string } {
-  const exact = `Valor ${money(c.value, ccy)} · aportes netos ${money(c.flow, ccy)} · ganancia ${money(c.gain, ccy)} · rend. ${pct(c.r)}`;
+  const exact = `Valor ${money(c.value, ccy)} · aportes netos ${money(c.flow, ccy)} · ganancia ${money(c.gain, ccy)} ${c.fx ? `(inversión ${money(c.gain.minus(c.fx), ccy)}, efecto cambiario ${money(c.fx, ccy)})` : '(sin tasa para separar el efecto cambiario)'} · rend. ${pct(c.r)}`;
   const title = c.flag ? `${exact} · ${FLAG_TEXT[c.flag]}` : exact;
   const held = !c.value.isZero() || !c.flow.isZero();
   if (!held) return { text: '', cls: 'n', title: '' };
@@ -53,6 +54,9 @@ function cellView(metric: Metric, c: Cell, ccy: string, kind: TrackRow['kind']):
       return { text: c.flow.isZero() ? '' : gridNumber(c.flow, ccy), cls: `n ${sign(c.flow.toNumber())}`, title };
     case 'gain':
       return { text: gridNumber(c.gain, ccy), cls: `n ${sign(c.gain.toNumber())}`, title };
+    case 'fx':
+      if (!c.fx) return { text: '—', cls: 'n', title };
+      return { text: c.fx.abs().lt(ccy === 'COP' ? 0.5 : 0.005) ? '' : gridNumber(c.fx, ccy), cls: `n ${sign(c.fx.toNumber())}`, title };
     case 'r':
       return kind === 'cash' ? { text: '', cls: 'n', title } : { text: pct(c.r), cls: 'n', style: heat(c.r), title };
   }
@@ -97,7 +101,8 @@ function toCsv(rows: TrackRow[], months: string[], from: number, metric: Metric)
     const vals = months.map((_, i) => {
       const c = r.cells[from + i]!;
       if (metric === 'r') return c.r === null ? '' : `${n(c.r * 100)}%`;
-      return n((metric === 'value' ? c.value : metric === 'gain' ? c.gain : c.flow).toNumber());
+      if (metric === 'fx') return c.fx ? n(c.fx.toNumber()) : '';
+      return n((metric === 'value' ? c.value : metric === 'gain' ? c.gain :  c.flow).toNumber());
     });
     lines.push([`"${r.label.replace(/"/g, '""')}"`, `"${r.sub ?? ''}"`, ...vals].join(';'));
   }

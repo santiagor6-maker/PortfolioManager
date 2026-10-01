@@ -27,6 +27,11 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
 
 ## Registro
 
+**2026-10-01 — Efecto cambiario separado en el cierre**
+- El usuario vio el cierre de septiembre distinto en el celular: era la moneda del reporte (USD allá, COP en el PC; se guarda por dispositivo). La devaluación del peso en septiembre hacía ver el inmueble como pérdida en dólares.
+- `tracking.ts` separa cada ganancia mensual en «de la inversión» y «efecto cambiario» (cambio de la tasa de la moneda en que se valora cada tenencia, sobre el valor inicial y cada flujo desde su fecha); suman exacto la ganancia. Columnas nuevas en Cierre del mes y métrica en Seguimiento; una tasa faltante solo deja el efecto en «—».
+- Validado: casos a mano (fondo COP en USD, venta a mitad de mes, valor manual en otra moneda, compra y venta en el mes) y la identidad exacta con el respaldo real. `finance-reviewer`: dos pasadas, aprobado.
+
 **2026-09-30 — Fundamentales de la SEC en Indicadores**
 - Etapa 4: la función `/api/fundamentals` trae de EDGAR companyfacts solo los conceptos necesarios (contacto en `SEC_USER_AGENT`); `src/data/sec.ts` arma 12 meses (anual + año corrido − año anterior) y exige que cada cifra llegue al último periodo, o queda faltante con el motivo. Se guardan en `Asset.sec`, aparte de lo copiado a mano; Indicadores las muestra encima, con la fuente en cada celda. Se leen solas una vez al mes.
 - Validado con datos reales de las 20 acciones de EE. UU. y extranjeras del usuario; el 10-K de Microsoft cuadra línea por línea. Las extranjeras (20-F) no muestran cifras por acción ni con precio (ADR ≠ acción local).

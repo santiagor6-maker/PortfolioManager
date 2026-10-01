@@ -62,6 +62,137 @@ describe('month-by-month tracking, hand-verified', () => {
   });
 });
 
+describe('the exchange-rate part of the month result, hand-verified', () => {
+  const rate = (date: string, perUsd: number) => ({ date, perUsd: dec(perUsd), source: 'test' });
+  const fx = (c: { fx?: { toFixed: (n: number) => string } }) => c.fx?.toFixed(4);
+
+  // A fund in pesos, reported in dollars. TRM: 3.200 on Aug 31, 3.300 on Sep 15, 3.400 on Sep 30.
+  const fund = {
+    book: { accounts, assets, prices: new SeriesPriceSource(), fx: new FxTable().set('COP', [rate('2025-08-01', 3200), rate('2025-08-31', 3200), rate('2025-09-15', 3300), rate('2025-09-30', 3400)]) },
+    ledger: [
+      tx('2025-08-01', 'cop', 'DEPOSIT', 3_200_000),
+      tx('2025-08-01', 'cop', 'BUY', -3_200_000, { asset: 'FUND', q: 1 }),
+      tx('2025-08-31', 'cop', 'VALUATION', 3_200_000, { asset: 'FUND' }),
+      tx('2025-09-15', 'cop', 'DEPOSIT', 330_000),
+      tx('2025-09-15', 'cop', 'BUY', -330_000, { asset: 'FUND', q: 0.1 }),
+      tx('2025-09-30', 'cop', 'VALUATION', 3_630_000, { asset: 'FUND' }),
+    ],
+    benchmarks: [],
+  };
+
+  it('splits the dollar result into what the fund made in pesos and what the peso lost', () => {
+    const t = tracking(fund, 'USD', '2025-09-30');
+    const c = t.assets.find((r) => r.id === 'cop|FUND')!.cells[1]!;
+    // 1.000 USD at the start (3.200.000 / 3.200), 100 put in (330.000 / 3.300), 1.067,65 at the end (3.630.000 / 3.400).
+    expect(c.gain.toFixed(4)).toBe('-32.3529');
+    // The peso: 1.000 × (3.200/3.400 − 1) + 100 × (3.300/3.400 − 1) = −58,8235 − 2,9412.
+    expect(fx(c)).toBe('-61.7647');
+    // The fund: 100.000 pesos gained, at the month-end rate.
+    expect(c.gain.minus(c.fx!).toFixed(4)).toBe('29.4118');
+    // Cash went in and out the same day: no effect on it; the total carries the fund's.
+    expect(fx(t.cash.cells[1]!)).toBe('0.0000');
+    expect(fx(t.total.cells[1]!)).toBe('-61.7647');
+    expect(fx(t.total.cells[0]!)).toBe('0.0000');
+    // In pesos there is no currency effect on peso holdings.
+    const cop = tracking(fund, 'COP', '2025-09-30');
+    expect(cop.total.cells.map((x) => x.fx!.toNumber())).toEqual([0, 0]);
+    expect(cop.total.cells[1]!.gain.toNumber()).toBe(100_000);
+  });
+
+  // A US stock, partly sold in the middle of February, reported in pesos. TRM 4.000, then 4.200 on Feb 15, 4.400 on Feb 28.
+  const sale = {
+    book: {
+      accounts,
+      assets,
+      prices: new SeriesPriceSource().set('AAA', [px('2025-01-31', 100), px('2025-02-28', 110)]),
+      fx: new FxTable().set('COP', [rate('2025-01-02', 4000), rate('2025-01-31', 4000), rate('2025-02-15', 4200), rate('2025-02-28', 4400)]),
+    },
+    ledger: [
+      tx('2025-01-02', 'usd', 'DEPOSIT', 1000),
+      tx('2025-01-02', 'usd', 'BUY', -1000, { asset: 'AAA', q: 10 }),
+      tx('2025-02-15', 'usd', 'SELL', 525, { asset: 'AAA', q: 5 }),
+    ],
+    benchmarks: [],
+  };
+
+  it('a sale in the middle of the month: the stock’s dollars and the cash it left, each from its date', () => {
+    const t = tracking(sale, 'COP', '2025-02-28');
+    const c = t.assets.find((r) => r.id === 'usd|AAA')!.cells[1]!;
+    // 4.000.000 at the start, −2.205.000 out (525 × 4.200), 2.420.000 at the end (5 × 110 × 4.400).
+    expect(c.gain.toNumber()).toBe(625_000);
+    // The dollar: 4.000.000 × (4.400/4.000 − 1) − 2.205.000 × (4.400/4.200 − 1) = 400.000 − 105.000.
+    expect(c.fx!.toNumber()).toBe(295_000);
+    // The stock: 550 − 1.000 + 525 = 75 dollars, at 4.400.
+    expect(c.gain.minus(c.fx!).toNumber()).toBe(330_000);
+    // The 525 dollars of cash rose with the dollar from Feb 15: 2.205.000 × (4.400/4.200 − 1); they earned nothing else.
+    expect(t.cash.cells[1]!.fx!.toNumber()).toBe(105_000);
+    expect(t.cash.cells[1]!.gain.toNumber()).toBe(105_000);
+    expect(t.total.cells[1]!.fx!.toNumber()).toBe(400_000);
+  });
+
+  it('a manual value is in its account’s currency, whatever the asset’s: a USD copy portfolio valued in pesos', () => {
+    const ctx = {
+      book: { accounts, assets, prices: new SeriesPriceSource(), fx: new FxTable().set('COP', [rate('2025-01-02', 4000), rate('2025-01-31', 4000), rate('2025-02-28', 4400)]) },
+      ledger: [
+        tx('2025-01-02', 'cop', 'DEPOSIT', 4_000_000),
+        tx('2025-01-02', 'cop', 'BUY', -4_000_000, { asset: 'COPY', q: 1 }),
+        tx('2025-01-31', 'cop', 'VALUATION', 4_000_000, { asset: 'COPY' }),
+        tx('2025-02-28', 'cop', 'VALUATION', 4_000_000, { asset: 'COPY' }),
+      ],
+      benchmarks: [],
+    };
+    // Same pesos: in dollars all of the −90,91 is the peso (1.000 × (4.000/4.400 − 1)); in pesos nothing moved.
+    const usd = tracking(ctx, 'USD', '2025-02-28').assets[0]!.cells[1]!;
+    expect(usd.gain.toFixed(4)).toBe('-90.9091');
+    expect(usd.fx!.toFixed(4)).toBe('-90.9091');
+    const cop = tracking(ctx, 'COP', '2025-02-28').assets[0]!.cells[1]!;
+    expect([cop.gain.toNumber(), cop.fx!.toNumber()]).toEqual([0, 0]);
+  });
+
+  it('a US stock bought and sold within the month from a peso account: the dollar’s move is the currency effect', () => {
+    const ctx = {
+      book: {
+        accounts,
+        assets,
+        prices: new SeriesPriceSource().set('AAA', [px('2025-01-31', 100), px('2025-02-28', 100)]),
+        fx: new FxTable().set('COP', [rate('2025-01-02', 4000), rate('2025-01-31', 4000), rate('2025-02-05', 4000), rate('2025-02-20', 4400), rate('2025-02-28', 4400)]),
+      },
+      ledger: [
+        tx('2025-01-02', 'cop', 'DEPOSIT', 4_000_000),
+        tx('2025-02-05', 'cop', 'BUY', -4_000_000, { asset: 'AAA', q: 10 }),
+        tx('2025-02-20', 'cop', 'SELL', 4_400_000, { asset: 'AAA', q: 10 }),
+      ],
+      benchmarks: [],
+    };
+    // 1.000 dollars of stock, same price: the 400.000 pesos it made are all the dollar (4.000 → 4.400).
+    const c = tracking(ctx, 'COP', '2025-02-28').assets.find((r) => r.id === 'cop|AAA')!.cells[1]!;
+    expect(c.gain.toNumber()).toBe(400_000);
+    expect(c.fx!.toNumber()).toBe(400_000);
+  });
+
+  it('a rate missing only for the split leaves the effect unknown, not the month', () => {
+    const ctx = {
+      book: {
+        accounts,
+        assets,
+        prices: new SeriesPriceSource().set('EUR1', [{ date: '2025-02-28', close: dec(11), ccy: 'EUR', source: 'test' }]),
+        // Euro rates only at month-ends: none on Feb 15, the day of the buy.
+        fx: new FxTable().set('EUR', [rate('2025-01-31', 0.9), rate('2025-02-28', 0.9)]),
+      },
+      ledger: [tx('2025-01-02', 'usd', 'DEPOSIT', 1000), tx('2025-02-15', 'usd', 'BUY', -1000, { asset: 'EUR1', q: 90 })],
+      benchmarks: [],
+    };
+    const t = tracking(ctx, 'USD', '2025-02-28');
+    expect(t.error).toBeUndefined();
+    expect(t.months).toEqual(['2025-01-31', '2025-02-28']);
+    const c = t.assets.find((r) => r.id === 'usd|EUR1')!.cells[1]!;
+    expect(c.gain.toNumber()).toBe(100); // 90 × 11 / 0,9 − 1.000
+    expect(c.fx).toBeUndefined();
+    expect(t.total.cells[1]!.fx).toBeUndefined();
+    expect(t.total.cells[0]!.fx!.toNumber()).toBe(0);
+  });
+});
+
 const read = (f: string) => readFileSync(new URL(`../samples/${f}`, import.meta.url), 'utf8');
 const book = parseBook(read('book.json'));
 const sample = { book: { ...book, prices: parsePrices(read('prices.csv')), fx: parseFx(read('fx.csv')) }, ledger: parseLedgerCsv(read('ledger.csv')), benchmarks: book.benchmarks };
@@ -81,6 +212,9 @@ describe('tracking on the synthetic sample', () => {
         expect(classes.minus(t.total.cells[m]![k]).abs().lt(1e-6)).toBe(true);
         expect(t.exRealEstate.cells[m]![k].plus(re.cells[m]![k]).minus(t.total.cells[m]![k]).abs().lt(1e-6)).toBe(true);
       }
+      // The currency effect adds up the same way (the sample is in pesos with US holdings, so it is not zero).
+      const fx = (c: { fx?: ReturnType<typeof dec> }) => c.fx!;
+      expect(t.classes.reduce((a, c) => a.plus(fx(c.cells[m]!)), fx(t.cash.cells[m]!)).minus(fx(t.total.cells[m]!)).abs().lt(1e-6)).toBe(true);
       for (const c of t.classes) {
         const assetsSum = t.assets.filter((a) => a.bucket === c.bucket).reduce((a, r) => a.plus(r.cells[m]!.value), dec(0));
         expect(assetsSum.minus(c.cells[m]!.value).abs().lt(1e-6)).toBe(true);

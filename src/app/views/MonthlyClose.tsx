@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'preact/hooks';
 import { monthEnds } from '../../domain/dates.ts';
 import { holdingsAt } from '../../domain/holdings.ts';
 import { dec } from '../../domain/money.ts';
+import type { Decimal } from '../../domain/money.ts';
 import { sortLedger } from '../../domain/ledger.ts';
 import { valuationTx, valuationsDue } from '../../domain/monthlyClose.ts';
 import type { Transaction } from '../../domain/types.ts';
@@ -45,6 +46,11 @@ function Step({ n, title, status, note, children }: { n: number; title: string; 
 }
 
 const sign = (x: number | null | undefined) => (x === null || x === undefined ? '' : x > 0 ? 'pos' : x < 0 ? 'neg' : '');
+/** Under half the last digit shown (pesos without decimals, other currencies with cents) is shown as zero, never as "−0". */
+const asShown = (x: Decimal, ccy: string) => (x.abs().lt(ccy === 'COP' ? 0.5 : 0.005) ? dec(0) : x);
+/** The month's result without the exchange-rate part; undefined when a rate to split it is missing. */
+const ofInvestment = (c: { gain: Decimal; fx?: Decimal }, ccy: string) => (c.fx ? asShown(c.gain.minus(c.fx), ccy) : undefined);
+const signed = (x: Decimal, ccy: string) => `${x.gt(0) ? '+' : ''}${moneyShort(x, ccy)}`;
 
 interface ManualRow {
   account: string;
@@ -433,6 +439,16 @@ function MonthResult({ t, m, ctx }: { t: Tracking; m: number; ctx: Context }) {
           <div class="small muted">
             {money(prev ? t.total.cells[m - 1]!.value : dec(0), ccy)} → {money(total.value, ccy)} · aportes netos {money(total.flow, ccy)}
           </div>
+          <div class="small fx-split">
+            {total.fx ? (
+              <>
+                De la inversión <strong class={sign(ofInvestment(total, ccy)!.toNumber())}>{signed(ofInvestment(total, ccy)!, ccy)}</strong> · efecto cambiario{' '}
+                <strong class={sign(asShown(total.fx, ccy).toNumber())}>{signed(asShown(total.fx, ccy), ccy)}</strong>
+              </>
+            ) : (
+              'Efecto cambiario: falta una tasa de cambio para separarlo'
+            )}
+          </div>
         </div>
         <div class="chips">
           <span class={`chip ${sign(total.r) === 'pos' ? 'good' : sign(total.r) === 'neg' ? 'bad' : ''}`}>
@@ -458,6 +474,8 @@ function MonthResult({ t, m, ctx }: { t: Tracking; m: number; ctx: Context }) {
               <th>Portafolio</th>
               <th class="n">Valor inicial</th>
               <th class="n">Aportes netos</th>
+              <th class="n">De la inversión</th>
+              <th class="n">Efecto cambiario</th>
               <th class="n">Ganancia</th>
               <th class="n">Rend. del mes</th>
               <th class="n">Índice del mes</th>
@@ -476,13 +494,17 @@ function MonthResult({ t, m, ctx }: { t: Tracking; m: number; ctx: Context }) {
                   </td>
                   <td class="n">{money(m > 0 ? r.cells[m - 1]!.value : dec(0), ccy)}</td>
                   <td class="n">{money(c.flow, ccy)}</td>
+                  <td class={`n ${sign(ofInvestment(c, ccy)?.toNumber())}`} title={c.fx ? undefined : 'Falta una tasa de cambio para separar la ganancia'}>
+                    {!c.fx ? '—' : r.kind === 'cash' && ofInvestment(c, ccy)!.isZero() ? '' : money(ofInvestment(c, ccy)!, ccy)}
+                  </td>
+                  <td class={`n ${sign(c.fx ? asShown(c.fx, ccy).toNumber() : undefined)}`}>{!c.fx ? '—' : asShown(c.fx, ccy).isZero() ? '' : money(asShown(c.fx, ccy), ccy)}</td>
                   <td class={`n ${sign(c.gain.toNumber())}`}>{money(c.gain, ccy)}</td>
                   <td class={`n ${r.kind === 'cash' ? '' : sign(c.r)}`}>{r.kind === 'cash' ? '' : pct(c.r)}</td>
                   <td class={`n ${sign(b?.r)}`} title={b?.name}>
                     {b ? (
                       <>
                         {pct(b.r)}
-                        <small class="muted"> {b.name}</small>
+                        <small class="muted bench-name">{b.name}</small>
                       </>
                     ) : (
                       ''
@@ -502,7 +524,10 @@ function MonthResult({ t, m, ctx }: { t: Tracking; m: number; ctx: Context }) {
         </>
       )}
       <p class="small muted" style="margin-top:8px">
-        Ganancia = valor al cierre − valor al cierre anterior − aportes netos; incluye dividendos y el efecto de la TRM. Efectivo: caja de los brókers, intereses, comisiones y efecto cambiario sobre la caja.
+        Ganancia = valor al cierre − valor al cierre anterior − aportes netos; incluye dividendos. Se separa en dos: <strong>de la inversión</strong>, lo que ganó cada activo en la moneda en que se valora
+        (la de su precio, o la de su cuenta si es un valor manual) convertido a la tasa del cierre, y <strong>efecto cambiario</strong>, lo que sumó o restó el movimiento de la tasa entre esa
+        moneda y la del reporte, sobre el valor inicial y sobre cada aporte desde su fecha. Efectivo: caja de los brókers; su parte «de la inversión» son intereses, comisiones y diferencias al
+        cambiar de moneda, cada una a la tasa de su fecha.
       </p>
     </>
   );

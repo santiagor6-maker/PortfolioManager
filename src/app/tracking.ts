@@ -15,6 +15,8 @@ import { bucketLabel } from './analysis.ts';
 
 export const REAL_ESTATE = 'inmobiliario';
 
+const ONE = new Decimal(1);
+
 /**
  * How a month-end value was obtained. `cost`: no price and no manual value (missing data, valued at cost);
  * `stale`: a market close more than 5 days old or a manual value from an earlier month (carried forward);
@@ -31,6 +33,14 @@ export interface Cell {
   wflow: Decimal;
   /** value − previous month-end value − flow: the month's result, including dividends and currency effect. */
   gain: Decimal;
+  /**
+   * The part of `gain` due to exchange rates: the change of the rate from the currency the holding is valued in
+   * (a market price's, or the account's for a manual value, a cost and cash) to the report currency, over the
+   * opening value and over each flow since its date. For a position, `gain − fx` is its result in that currency
+   * translated at the month-end rate; for cash, the interest, fees and conversion spreads at their own dates'
+   * rates. Undefined when a rate it needs is missing (the gain itself is still known).
+   */
+  fx?: Decimal;
   /** Modified Dietz return for the month; null when the capital base is not positive. */
   r: number | null;
   /**
@@ -76,11 +86,25 @@ interface Acc {
   value: Decimal[];
   flow: Decimal[];
   wflow: Decimal[];
+  fx: (Decimal | undefined)[];
+  /** Currency each month-end value was taken in (see ValuedPosition.valuedIn). */
+  inCcy: (Ccy | undefined)[];
+  /** This month's flows, in the report currency at their date, waiting for the month-end to measure their currency effect. */
+  pending: { amount: Decimal; date: IsoDate }[];
   flags: (CellFlag | undefined)[];
   flows: Flow[];
 }
 
-const newAcc = (n: number): Acc => ({ value: Array(n).fill(ZERO), flow: Array(n).fill(ZERO), wflow: Array(n).fill(ZERO), flags: Array(n).fill(undefined), flows: [] });
+const newAcc = (n: number): Acc => ({
+  value: Array(n).fill(ZERO),
+  flow: Array(n).fill(ZERO),
+  wflow: Array(n).fill(ZERO),
+  fx: Array(n).fill(ZERO),
+  inCcy: Array(n).fill(undefined),
+  pending: [],
+  flags: Array(n).fill(undefined),
+  flows: [],
+});
 
 function cells(a: Acc, n: number): Cell[] {
   const out: Cell[] = [];
@@ -92,7 +116,7 @@ function cells(a: Acc, n: number): Cell[] {
     // Same convention as the engine's TWR: when the row starts inside the month, flows get full weight.
     const base = v0.plus(v0.isZero() ? f : a.wflow[m]!);
     const approx = v0.gt(0) && base.gt(0) && base.lt(Decimal.max(v0, v1).div(2));
-    out.push({ value: v1, flow: f, wflow: a.wflow[m]!, gain, r: base.gt(0) ? gain.div(base).toNumber() : null, ...(approx ? { approx: true as const } : {}), ...(a.flags[m] ? { flag: a.flags[m] } : {}) });
+    out.push({ value: v1, flow: f, wflow: a.wflow[m]!, gain, ...(a.fx[m] ? { fx: a.fx[m] } : {}), r: base.gt(0) ? gain.div(base).toNumber() : null, ...(approx ? { approx: true as const } : {}), ...(a.flags[m] ? { flag: a.flags[m] } : {}) });
   }
   return out;
 }
@@ -105,6 +129,9 @@ function combine(n: number, parts: Acc[], signs: number[] = parts.map(() => 1)):
       a.value[m] = a.value[m]!.plus(p.value[m]!.times(s));
       a.flow[m] = a.flow[m]!.plus(p.flow[m]!.times(s));
       a.wflow[m] = a.wflow[m]!.plus(p.wflow[m]!.times(s));
+      const x = a.fx[m];
+      const y = p.fx[m];
+      a.fx[m] = x && y ? x.plus(y.times(s)) : undefined;
     }
     a.flows.push(...p.flows.map((f) => ({ date: f.date, amount: f.amount.times(s) })));
   });
@@ -134,6 +161,26 @@ export function tracking(ctx: Context, ccy: Ccy, to: IsoDate): Tracking {
     if (!a) throw new Error(`Cuenta desconocida: ${id}`);
     return a.ccy;
   };
+  // What one unit of a currency is worth in the report currency on a date: the currency effect is how it moved.
+  const rateCache = new Map<string, Decimal>();
+  const rate = (c: Ccy, date: IsoDate) => {
+    const key = `${c}|${date}`;
+    let r = rateCache.get(key);
+    if (!r) rateCache.set(key, (r = c === ccy ? ONE : ctx.book.fx.convert(ONE, c, ccy, date)));
+    return r;
+  };
+  /** Currency effect, over to month-end `d`, of an amount in the report currency held in `c` since `from`. */
+  const moved = (amount: Decimal, c: Ccy, from: IsoDate, d: IsoDate) => (c === ccy || amount.isZero() ? ZERO : amount.times(rate(c, d).div(rate(c, from)).minus(1)));
+  /** A currency effect that needs a rate the data lacks is unknown; it never stops the series. */
+  const effect = (f: () => Decimal): Decimal | undefined => {
+    try {
+      return f();
+    } catch (e) {
+      if (e instanceof MissingDataError) return undefined;
+      throw e;
+    }
+  };
+
   let prev = addDays(`${all[0]!.slice(0, 8)}01`, -1);
   let i = 0;
   let done = 0;
@@ -142,9 +189,17 @@ export function tracking(ctx: Context, ccy: Ccy, to: IsoDate): Tracking {
     const d = all[m]!;
     const days = daysBetween(prev, d);
     try {
+      const openingCash = m > 0 ? new Map(h.cash) : new Map<string, Decimal>();
+      const cashMoves: { account: string; delta: Decimal; date: IsoDate }[] = [];
+      for (const a of pos.values()) a.pending = [];
       for (; i < sorted.length && sorted[i]!.date <= d; i++) {
         const tx = sorted[i]!;
+        const before = new Map(h.cash);
         apply(h, tx);
+        for (const account of new Set([...before.keys(), ...h.cash.keys()])) {
+          const delta = (h.cash.get(account) ?? ZERO).minus(before.get(account) ?? ZERO);
+          if (!delta.isZero()) cashMoves.push({ account, delta, date: tx.date });
+        }
         const w = new Decimal(daysBetween(tx.date, d)).div(days);
         const add = (a: Acc, amount: Decimal) => {
           const f = ctx.book.fx.convert(amount, accCcy(tx.account), ccy, tx.date);
@@ -155,7 +210,10 @@ export function tracking(ctx: Context, ccy: Ccy, to: IsoDate): Tracking {
         if (tx.asset && BUCKET_FLOWS.has(tx.type)) {
           const k = `${tx.account}|${tx.asset}`;
           if (!pos.has(k)) pos.set(k, newAcc(N));
-          add(pos.get(k)!, tx.amount.neg());
+          const a = pos.get(k)!;
+          const was = a.flow[m]!;
+          add(a, tx.amount.neg());
+          a.pending.push({ amount: a.flow[m]!.minus(was), date: tx.date });
         }
         if (TOTAL_FLOWS.has(tx.type)) add(total, tx.amount);
       }
@@ -168,6 +226,7 @@ export function tracking(ctx: Context, ccy: Ccy, to: IsoDate): Tracking {
         const a = pos.get(k)!;
         const v = valuePosition(ctx.book, p, d, ccy);
         a.value[m] = v.value;
+        a.inCcy[m] = v.valuedIn;
         a.flags[m] =
           v.method === 'cost' ? 'cost'
           : v.method === 'market' ? ((v.priceAgeDays ?? 0) > 5 ? 'stale' : undefined)
@@ -177,6 +236,26 @@ export function tracking(ctx: Context, ccy: Ccy, to: IsoDate): Tracking {
       }
       for (const [account, c] of h.cash) sum = sum.plus(ctx.book.fx.convert(c, accCcy(account), ccy, d));
       total.value[m] = sum;
+
+      // Currency effects: each opening value in the currency it was taken in, from the previous month-end; each
+      // flow from its date, in the currency the position is valued in now (or was, if it closed this month).
+      let fxAll = effect(() => {
+        let x = ZERO;
+        for (const [account, c] of openingCash) x = x.plus(moved(ctx.book.fx.convert(c, accCcy(account), ccy, prev), accCcy(account), prev, d));
+        for (const c of cashMoves) x = x.plus(moved(ctx.book.fx.convert(c.delta, accCcy(c.account), ccy, c.date), accCcy(c.account), c.date, d));
+        return x;
+      });
+      for (const [k, a] of pos) {
+        const opening = m > 0 ? a.inCcy[m - 1] : undefined;
+        // Opened and closed within the month (never valued): a quoted asset moves with its price's currency.
+        const def = ctx.book.assets.get(k.split('|')[1]!);
+        const now = a.inCcy[m] ?? opening ?? (def?.pricing === 'market' && def.symbol ? def.ccy : accCcy(k.split('|')[0]!));
+        a.fx[m] = effect(() =>
+          a.pending.reduce((x, f) => x.plus(moved(f.amount, now, f.date, d)), opening ? moved(a.value[m - 1]!, opening, prev, d) : ZERO),
+        );
+        fxAll = fxAll && a.fx[m] ? fxAll.plus(a.fx[m]!) : undefined;
+      }
+      total.fx[m] = fxAll;
     } catch (e) {
       error = e instanceof MissingDataError ? `Falta un dato de mercado: ${e.message}` : e instanceof Error ? e.message : String(e);
       break;
@@ -231,6 +310,9 @@ export function combineRows(rows: readonly TrackRow[], id: string, label: string
     value: r.cells.map((c) => c.value),
     flow: r.cells.map((c) => c.flow),
     wflow: r.cells.map((c) => c.wflow),
+    fx: r.cells.map((c) => c.fx),
+    inCcy: [],
+    pending: [],
     flags: r.cells.map((c) => c.flag),
     flows: r.flows,
   }));

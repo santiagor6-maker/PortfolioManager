@@ -152,7 +152,7 @@ describe('months where Modified Dietz breaks down', () => {
 
 describe('rows built by hand', () => {
   const cell = (value: number, flow: number, r: number | null, flag?: Cell['flag']): Cell => ({
-    value: dec(value), flow: dec(flow), wflow: dec(flow), gain: dec(0), r, ...(flag ? { flag } : {}),
+    value: dec(value), flow: dec(flow), wflow: dec(flow), gain: dec(0), fx: dec(0), r, ...(flag ? { flag } : {}),
   });
   const months = ['2024-11-30', '2024-12-31', '2025-01-31', '2025-02-28', '2025-03-31'];
   // Held in November and December, sold, nothing in February, bought again in March.
