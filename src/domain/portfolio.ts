@@ -9,6 +9,7 @@ import type { Book, Valuation } from './valuation.ts';
 
 /**
  * What is being measured, and therefore which flows are external to it:
+ * - `assets`: some holdings across accounts, measured like a bucket (their trades are the flows, no cash).
  * - `bucket`: an asset class across accounts. Buys/capital calls are money in; sales, write-offs and
  *   dividends are money out (they land in the account's cash, outside the bucket). Cash is excluded.
  * - `accounts`: whole accounts including their cash. Deposits, withdrawals and transfers are the flows.
@@ -20,6 +21,7 @@ import type { Book, Valuation } from './valuation.ts';
  */
 export type Scope =
   | { kind: 'bucket'; bucket: string }
+  | { kind: 'assets'; assets: readonly string[] }
   | { kind: 'accounts'; accounts: readonly string[] }
   | { kind: 'total' }
   | { kind: 'mix'; buckets: readonly string[]; cash: boolean };
@@ -45,6 +47,8 @@ function flowOf(book: Book, scope: Scope, tx: Transaction): Decimal | undefined 
     case 'bucket':
       if (!BUCKET_FLOWS.has(tx.type) || !tx.asset) return undefined;
       return book.assets.get(tx.asset)?.bucket === scope.bucket ? tx.amount.neg() : undefined;
+    case 'assets':
+      return BUCKET_FLOWS.has(tx.type) && tx.asset && scope.assets.includes(tx.asset) ? tx.amount.neg() : undefined;
     case 'accounts':
       return ACCOUNT_FLOWS.has(tx.type) && scope.accounts.includes(tx.account) ? tx.amount : undefined;
     case 'total':
@@ -62,6 +66,8 @@ function value(book: Book, scope: Scope, h: Holdings, ccy: Ccy): Valuation {
   switch (scope.kind) {
     case 'bucket':
       return valueHoldings(book, h, ccy, (_acc, asset) => asset?.bucket === scope.bucket, false);
+    case 'assets':
+      return valueHoldings(book, h, ccy, (_acc, asset) => asset !== undefined && scope.assets.includes(asset.id), false);
     case 'accounts':
       return valueHoldings(book, h, ccy, (acc) => scope.accounts.includes(acc));
     case 'total':

@@ -40,6 +40,44 @@ export interface MonthClose {
   gain: string;
 }
 
+/**
+ * The investor's own policy, set in Orientación: what the advice is measured against. Weights are fractions
+ * (0.3 = 30 %). Nothing here is market data; every value is the user's choice (the view offers templates).
+ */
+export interface InvestorProfile {
+  /** Years until most of the money is needed. */
+  horizonYears: number;
+  /** Deepest fall of the liquid portfolio the user would sit through without selling, as a positive fraction. */
+  maxDrawdown: number;
+  /** Target weight of each class in the liquid portfolio (everything but real estate; cash is `efectivo`); they add up to 1. */
+  targets: Record<string, number>;
+  /** Amount the user expects to invest each month (decimal string, in `monthlyCcy`). */
+  monthly?: string;
+  monthlyCcy?: string;
+  /** Largest weight of one company's stock in the liquid portfolio. */
+  maxPosition: number;
+  /** Largest share of net worth in real estate (equity). */
+  maxRealEstate: number;
+  /** When the balance still owed on a property bought on a payment plan falls due (YYYY-MM-DD). */
+  commitmentDue?: string;
+  /** Part of that balance paid with money from outside the portfolio: a mortgage, an assignment, savings elsewhere (decimal string, COP). */
+  commitmentFunding?: string;
+  /** What the property is for: it changes whether it counts as an investment. */
+  propertyPlan?: 'vivir' | 'arrendar' | 'vender';
+  /** Months of expenses kept outside the portfolio as an emergency fund. */
+  emergencyMonths?: number;
+  /** Household income and expenses per month, after taxes (decimal strings, COP): what the plan can afford. */
+  income?: string;
+  expenses?: string;
+  /** The mortgage for the balance: effective annual rate (0.12 = 12 % E.A.) and term in years. */
+  mortgageRate?: number;
+  mortgageYears?: number;
+  /** For a property to rent: expected monthly rent and monthly costs (administration, property tax, upkeep), COP. */
+  rent?: string;
+  rentCosts?: string;
+  updatedAt: string;
+}
+
 /** Everything the app stores. Exported as a single JSON backup. */
 export interface Dataset {
   format: 'investment-tracker';
@@ -51,6 +89,7 @@ export interface Dataset {
   prices: StoredPrice[];
   fx: StoredRate[];
   closes: MonthClose[];
+  profile?: InvestorProfile;
 }
 
 export function emptyDataset(): Dataset {

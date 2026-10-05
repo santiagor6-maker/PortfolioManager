@@ -10,6 +10,7 @@ import { Tracking } from './views/Tracking.tsx';
 import { Prices } from './views/Prices.tsx';
 import { Indicators } from './views/Indicators.tsx';
 import { Dividends } from './views/Dividends.tsx';
+import { Advice } from './views/Advice.tsx';
 import { Compare } from './views/Compare.tsx';
 import { DataView } from './views/Data.tsx';
 import { initSync, syncConfigured, useSync } from './sync.ts';
@@ -23,6 +24,7 @@ const ROUTES = [
   { id: 'precios', label: 'Precios', view: Prices },
   { id: 'indicadores', label: 'Indicadores', view: Indicators },
   { id: 'dividendos', label: 'Dividendos', view: Dividends },
+  { id: 'orientacion', label: 'Orientación', view: Advice },
   { id: 'activos', label: 'Activos', view: Positions },
   { id: 'comparacion', label: 'Comparación', view: Compare },
   { id: 'movimientos', label: 'Movimientos', view: Transactions },

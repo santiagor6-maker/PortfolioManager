@@ -6,7 +6,8 @@ export function money(x: Decimal | undefined, ccy: string, digits?: number): str
   if (!x) return '—';
   const d = digits ?? (ccy === 'COP' ? 0 : 2);
   const n = new Intl.NumberFormat('es-CO', { minimumFractionDigits: d, maximumFractionDigits: d }).format(x.toNumber());
-  return ccy === 'COP' ? `$ ${n}` : ccy === 'USD' ? `US$ ${n}` : `${n} ${ccy}`;
+  // A non-breaking space keeps the sign with its figure when a line wraps.
+  return ccy === 'COP' ? `$\u00a0${n}` : ccy === 'USD' ? `US$\u00a0${n}` : `${n}\u00a0${ccy}`;
 }
 
 /** Compact money for tiles: "$ 399,3 M" / "US$ 116 mil". */
@@ -14,7 +15,7 @@ export function moneyShort(x: Decimal, ccy: string): string {
   const n = x.toNumber();
   const a = Math.abs(n);
   const prefix = ccy === 'COP' ? '$' : ccy === 'USD' ? 'US$' : ccy;
-  const f = (v: number, unit: string) => `${prefix} ${new Intl.NumberFormat('es-CO', { maximumFractionDigits: 1 }).format(v)} ${unit}`;
+  const f = (v: number, unit: string) => `${prefix}\u00a0${new Intl.NumberFormat('es-CO', { maximumFractionDigits: 1 }).format(v)}\u00a0${unit}`;
   if (a >= 1e9) return f(n / 1e9, 'mil M');
   if (a >= 1e6) return f(n / 1e6, 'M');
   if (a >= 1e4) return f(n / 1e3, 'mil');

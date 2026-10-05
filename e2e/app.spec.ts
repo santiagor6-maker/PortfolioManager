@@ -25,7 +25,7 @@ test('demo portfolio: summary, positions, comparison, persistence', async ({ pag
   await expect(page.locator('.class-card').filter({ hasText: 'Acciones USD' }).getByText('Índice demo (retorno total)').first()).toBeVisible();
   await expect(page.locator('.notice.err')).toHaveCount(0);
   const value = await page.locator('.hero .figure').textContent();
-  expect(value).toMatch(/\$ \d/);
+  expect(value).toMatch(/\$\s\d/);
   if (shots) await page.screenshot({ path: `${shots}/resumen-${info.project.name}.png`, fullPage: true });
 
   await page.getByRole('button', { name: 'USD', exact: true }).click();
@@ -184,7 +184,7 @@ test('price tracking: set a target and see the progress; theme switch', async ({
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
 });
 
-const amount = (s: string | null) => Number((s ?? '').match(/\$ ([\d.]+)/)![1]!.replace(/\./g, ''));
+const amount = (s: string | null) => Number((s ?? '').match(/\$\s([\d.]+)/)![1]!.replace(/\./g, ''));
 
 test('summary analysis blocks: gain bridge, monthly heatmap and risk; hide and reorder blocks', async ({ page }, info) => {
   const errors: string[] = [];

@@ -8,6 +8,7 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
   - Skills, subagentes y hooks.
   - Visualizaciones de análisis: Resumen modular, puente de ganancia, mapa mensual, riesgo, peso vs potencial.
   - Pestaña Dividendos (inspirada en getquin).
+  - Pestaña Orientación: plan de acción contra el perfil del usuario y contra los índices (evaluada por un estratega y por `finance-reviewer`).
 - Plan acordado:
   1. Netlify.
   2. Supabase con datos cifrados en el navegador.
@@ -26,6 +27,11 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
 - Mejora anotada: el aviso de TRM del Cierre nombra el primer mes pendiente, no el mes que se está cerrando.
 
 ## Registro
+
+**2026-10-05 — Orientación: plan de acción del portafolio**
+- El usuario pidió un módulo de recomendación «como un experto de Wall Street», autoevaluado hasta 4,9/5. `advice.ts` + pestaña Orientación: perfil del inversionista (plantillas editables, fondo de emergencia, fuente y fecha del saldo del inmueble), cada activo contra el índice de su clase con el mismo dinero (las brechas suman la de la clase), reserva en pesos para el saldo antes de invertir, mezcla con bandas 5/25 y plan de aportes sin vender, concentración, efectivo, riesgo (peor caída propia y escenario de crisis con supuestos declarados) y notas tributarias de Colombia. Decide en pesos; no pronostica ni recomienda acciones nuevas.
+- Rúbrica de 8 criterios (corrección, evidencia, idoneidad, accionabilidad, prioridad, riesgo, comunicación, cumplimiento) con un estratega independiente: 3,2 → 4,1 → 4,5 → 4,7 → 4,8 → 4,85 → 4,9. Se rehizo alrededor del pasivo del inmueble, el riesgo en pesos y la idoneidad; luego hipoteca y arriendo, presupuesto, orden por urgencia y «Qué vender primero» clase por clase con el costo fiscal en pesos.
+- `finance-reviewer`: seis rondas, todos los hallazgos corregidos, aprobado. 262 unitarias y 39 e2e.
 
 **2026-10-01 — Efecto cambiario separado en el cierre**
 - El usuario vio el cierre de septiembre distinto en el celular: era la moneda del reporte (USD allá, COP en el PC; se guarda por dispositivo). La devaluación del peso en septiembre hacía ver el inmueble como pérdida en dólares.
