@@ -28,7 +28,7 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
 
 ## Registro
 
-**2026-10-05 — Orientación: plan de acción del portafolio**
+**2026-10-05 — Orientación: plan de acción del portafolio** (87115a0)
 - El usuario pidió un módulo de recomendación «como un experto de Wall Street», autoevaluado hasta 4,9/5. `advice.ts` + pestaña Orientación: perfil del inversionista (plantillas editables, fondo de emergencia, fuente y fecha del saldo del inmueble), cada activo contra el índice de su clase con el mismo dinero (las brechas suman la de la clase), reserva en pesos para el saldo antes de invertir, mezcla con bandas 5/25 y plan de aportes sin vender, concentración, efectivo, riesgo (peor caída propia y escenario de crisis con supuestos declarados) y notas tributarias de Colombia. Decide en pesos; no pronostica ni recomienda acciones nuevas.
 - Rúbrica de 8 criterios (corrección, evidencia, idoneidad, accionabilidad, prioridad, riesgo, comunicación, cumplimiento) con un estratega independiente: 3,2 → 4,1 → 4,5 → 4,7 → 4,8 → 4,85 → 4,9. Se rehizo alrededor del pasivo del inmueble, el riesgo en pesos y la idoneidad; luego hipoteca y arriendo, presupuesto, orden por urgencia y «Qué vender primero» clase por clase con el costo fiscal en pesos.
 - `finance-reviewer`: seis rondas, todos los hallazgos corregidos, aprobado. 262 unitarias y 39 e2e.
