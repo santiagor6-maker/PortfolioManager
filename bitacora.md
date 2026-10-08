@@ -28,7 +28,7 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
 
 ## Registro
 
-**2026-10-08 — Pestañas renombradas y fusionadas (11 → 10)**
+**2026-10-08 — Pestañas renombradas y fusionadas (11 → 10)** (9442200)
 - El usuario aprobó la propuesta: Resumen · Inversiones (Activos + Precios, con subvistas Posiciones y Precios y objetivos) · Mes a mes (Seguimiento) · Dividendos · Contra el mercado (Comparación) · Tesis (Indicadores) · Mi plan (Orientación) · Cierre del mes · Movimientos · Datos. Orden por frecuencia de uso.
 - Los enlaces viejos (`#/activos`, `#/precios`, `#/seguimiento`…) redirigen a la pestaña nueva; textos, skills y CLAUDE.md actualizados.
 
