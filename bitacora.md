@@ -28,7 +28,7 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
 
 ## Registro
 
-**2026-10-08 — Compras y ventas en otra moneda (EUR, CAD) con la tasa del bróker**
+**2026-10-08 — Compras y ventas en otra moneda (EUR, CAD) con la tasa del bróker** (d831cd5)
 - Si el activo cotiza en otra moneda que la cuenta (Nagarro en EUR en IBKR/eToro en USD), el formulario pide el precio en su moneda y la tasa que aplicó el bróker, como la muestra (USD por 1 EUR; CAD o COP por 1 USD); total = cantidad × precio convertido ± comisión, al centavo, y la nota guarda precio y tasa. La tasa guardada solo sirve de referencia (avisa si está invertida o a más de 5 %).
 - Activo nuevo: aviso de que fuera de EE. UU. el símbolo de Yahoo lleva sufijo de bolsa (NA9.DE).
 
