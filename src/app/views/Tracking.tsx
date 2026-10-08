@@ -3,6 +3,7 @@ import { ZERO } from '../../domain/money.ts';
 import type { Decimal } from '../../domain/money.ts';
 import { contextOf } from '../context.ts';
 import { byClassOrder, classColor } from '../components/Bars.tsx';
+import { CompositionCard } from '../components/Composition.tsx';
 import { MonthBars } from '../components/MonthBars.tsx';
 import { date, money, monthLabel, pct, today } from '../format.ts';
 import { REAL_ESTATE, tracking, xirrToDate, yearToDate } from '../tracking.ts';
@@ -200,6 +201,8 @@ export function Tracking() {
           El seguimiento llega hasta {monthLabel(t.months[last]!)}. {t.error}. Cárgalo en <a href="#/datos">Datos</a> para ver el mes siguiente.
         </div>
       )}
+
+      <CompositionCard t={t} from={from} to={to} />
 
       <div class="card">
         <div class="card-head">

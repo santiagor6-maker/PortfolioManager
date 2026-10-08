@@ -55,8 +55,10 @@ test('record a buy, reject an oversell, record a sale', async ({ page }) => {
   await form.getByLabel('Fecha').fill('2025-06-10');
   await form.getByRole('combobox', { name: /^Cuenta/ }).selectOption('broker-usd');
   await form.getByRole('combobox', { name: /^Activo/ }).selectOption('SMPL');
-  await form.getByLabel('Cantidad (unidades)').fill('2');
-  await form.getByLabel(/Total pagado/).fill('250,50');
+  await form.getByLabel(/^Cantidad/).fill('2');
+  await form.getByLabel(/Precio de compra por unidad/).fill('125,25');
+  await expect(form.locator('.trade-total')).toContainText('Total que sale de la cuenta: US$\u00a0250,50');
+  if (shots) await form.screenshot({ path: `${shots}/compra-${test.info().project.name}.png` });
   await form.getByRole('button', { name: 'Guardar' }).click();
   await expect(page.getByText('44 movimientos')).toBeVisible();
   await expect(page.getByRole('cell', { name: 'US$ -250,50' })).toBeVisible();
@@ -67,15 +69,26 @@ test('record a buy, reject an oversell, record a sale', async ({ page }) => {
   await form.getByRole('combobox', { name: /^Cuenta/ }).selectOption('broker-usd');
   await form.getByRole('combobox', { name: /^Activo/ }).selectOption('SMPL');
   await expect(form.getByText('Tienes 30 a esa fecha')).toBeVisible();
-  await form.getByLabel('Cantidad (unidades)').fill('31');
-  await form.getByLabel(/Total recibido/).fill('4000');
+  await form.getByLabel(/^Cantidad/).fill('31');
+  await form.getByLabel(/Precio de venta por unidad/).fill('129');
   await form.getByRole('button', { name: 'Guardar' }).click();
   await expect(form.getByRole('alert')).toContainText('excede la posición');
   await expect(page.getByText('44 movimientos')).toBeVisible();
 
-  await form.getByLabel('Cantidad (unidades)').fill('10');
+  await form.getByLabel(/^Cantidad/).fill('10');
+  // A fee above the gross would turn the sale into money out: rejected, never stored with the sign flipped.
+  await form.getByLabel(/^Comisión/).fill('2000');
+  await form.getByRole('button', { name: 'Guardar' }).click();
+  await expect(form.getByRole('alert')).toContainText('El total resulta negativo o cero');
+  await form.getByLabel(/^Comisión/).fill('');
+  // The statement's total wins over units × price when they differ.
+  await form.getByRole('button', { name: 'El extracto dice otro total: escribirlo' }).click();
+  await expect(form.getByLabel(/Total recibido/)).toHaveValue('1290');
+  await form.getByLabel(/Total recibido/).fill('1289,40');
+  await expect(form.getByText(/Equivale a US\$\s128,94/)).toBeVisible();
   await form.getByRole('button', { name: 'Guardar' }).click();
   await expect(page.getByText('45 movimientos')).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'US$ 1.289,40' })).toBeVisible();
 });
 
 test('buy a new asset created inline', async ({ page }) => {
@@ -88,8 +101,8 @@ test('buy a new asset created inline', async ({ page }) => {
   await form.getByRole('combobox', { name: /^Activo/ }).selectOption('__new__');
   await form.getByLabel('Código').fill('NEWCO');
   await form.getByLabel('Nombre').fill('New Co');
-  await form.getByLabel('Cantidad (unidades)').fill('1');
-  await form.getByLabel(/Total pagado/).fill('10');
+  await form.getByLabel(/^Cantidad/).fill('1');
+  await form.getByLabel(/Precio de compra por unidad/).fill('10');
   await form.getByRole('button', { name: 'Guardar' }).click();
   await expect(page.getByRole('cell', { name: 'New Co' })).toBeVisible();
   await page.getByRole('link', { name: 'Activos' }).click();
@@ -147,12 +160,29 @@ test('month-by-month tracking with total and subtotal without real estate', asyn
   await expect(page.locator('.notice.warn')).toContainText('El seguimiento llega hasta jun 2025');
   if (shots) await page.screenshot({ path: `${shots}/seguimiento-${info.project.name}.png`, fullPage: true });
 
+  // Composition: classes of the last month-end add up to 100 %, a class opens its holdings, real estate can be left out.
+  const comp = page.getByRole('region', { name: 'Composición del portafolio' });
+  const classes = comp.getByRole('region', { name: /Clases al cierre de jun 2025/ });
+  await expect(classes.locator('.comp-row').first()).toBeVisible();
+  const shares = (await classes.locator('.comp-val').allTextContents()).map((x) => Number(x.split('%')[0]!.trim().replace(',', '.')));
+  expect(Math.abs(shares.reduce((a, b) => a + b, 0) - 100)).toBeLessThan(0.3);
+  await classes.getByRole('button', { name: /Acciones USD/ }).click();
+  await expect(comp.getByRole('heading', { name: /Dentro de Acciones USD/ })).toBeVisible();
+  await expect(comp.getByRole('region', { name: 'Posiciones' })).toContainText('Sample Corp');
+  await comp.getByRole('group', { name: 'Inmobiliario' }).getByRole('button', { name: 'Sin inmobiliario' }).click();
+  await expect(classes.getByRole('button', { name: /Inmobiliario/ })).toHaveCount(0);
+  // Picking an earlier month in the chart shows that month's split.
+  await comp.locator('svg .col').first().click();
+  await expect(comp.getByRole('region', { name: /Clases al cierre de/ })).not.toHaveAccessibleName(/jun 2025/);
+  await comp.getByRole('group', { name: 'Inmobiliario' }).getByRole('button', { name: 'Con inmobiliario' }).click();
+  if (shots) await comp.screenshot({ path: `${shots}/composicion-${info.project.name}.png` });
+
   await page.getByRole('button', { name: 'Rend. del mes' }).first().click();
   await expect(grid.locator('tr.k-total td').last()).toHaveText(/%$/);
   await grid.getByRole('button', { name: 'Acciones USD' }).click();
   await expect(grid.getByRole('rowheader', { name: /Copy portfolio Tech/ })).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'Sin inmobiliario' }).click();
+  await page.getByRole('group', { name: 'Portafolio' }).getByRole('button', { name: 'Sin inmobiliario' }).click();
   await expect(page.getByText('todo menos el inmobiliario')).toBeVisible();
   await grid.locator('thead').getByRole('link', { name: /jun/ }).click();
   await expect(page.locator('.close-title')).toHaveText('jun 2025');

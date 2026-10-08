@@ -28,6 +28,12 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
 
 ## Registro
 
+**2026-10-08 — Composición en Seguimiento, compras por cantidad × precio**
+- Seguimiento abre con «Composición del portafolio»: columnas 100 % por clase mes a mes (clic = ese mes), clases del mes y posiciones de la clase elegida (% de la clase y del total), con o sin inmobiliario. Paleta validada con el validador de dataviz (claro y oscuro).
+- Movimientos: compra y venta se registran con cantidad, precio por unidad y comisión; la app calcula el total al centavo y muestra el cierre guardado del día como referencia. Se puede escribir el total del extracto (muestra el precio implícito). En COP, «2.345» es dos mil trescientos cuarenta y cinco.
+- `finance-reviewer` (3 rondas): venta con comisión mayor que el bruto rechazada, miles en pesos, edición que nunca cambia el monto (campos con coma decimal), posiciones negativas aparte.
+- Nombres de pestañas: dos subagentes (inventario de pestañas y cómo nombran otras apps) → propuesta al usuario, pendiente de su decisión.
+
 **2026-10-05 — Orientación: plan de acción del portafolio** (87115a0)
 - El usuario pidió un módulo de recomendación «como un experto de Wall Street», autoevaluado hasta 4,9/5. `advice.ts` + pestaña Orientación: perfil del inversionista (plantillas editables, fondo de emergencia, fuente y fecha del saldo del inmueble), cada activo contra el índice de su clase con el mismo dinero (las brechas suman la de la clase), reserva en pesos para el saldo antes de invertir, mezcla con bandas 5/25 y plan de aportes sin vender, concentración, efectivo, riesgo (peor caída propia y escenario de crisis con supuestos declarados) y notas tributarias de Colombia. Decide en pesos; no pronostica ni recomienda acciones nuevas.
 - Rúbrica de 8 criterios (corrección, evidencia, idoneidad, accionabilidad, prioridad, riesgo, comunicación, cumplimiento) con un estratega independiente: 3,2 → 4,1 → 4,5 → 4,7 → 4,8 → 4,85 → 4,9. Se rehizo alrededor del pasivo del inmueble, el riesgo en pesos y la idoneidad; luego hipoteca y arriendo, presupuesto, orden por urgencia y «Qué vender primero» clase por clase con el costo fiscal en pesos.

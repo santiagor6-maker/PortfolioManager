@@ -8,8 +8,9 @@ import { validateTransaction } from '../../domain/validate.ts';
 import type { Issue } from '../../domain/validate.ts';
 import { bucketLabel } from '../analysis.ts';
 import { contextOf } from '../context.ts';
-import { money, num, today } from '../format.ts';
+import { date, money, num, today } from '../format.ts';
 import { TYPE_LABELS } from '../labels.ts';
+import { editablePrice, field, impliedPrice, parseNum, tradeTotal } from '../trade.ts';
 import { addTransactions, newId, replaceTransactions, upsertAsset } from '../mutations.ts';
 import { getDataset, setDataset, useDataset } from '../store.ts';
 
@@ -19,6 +20,8 @@ const WITH_ASSET = new Set<Kind>(['BUY', 'SELL', 'DIVIDEND', 'WRITE_OFF', 'CAPIT
 const WITH_QTY = new Set<Kind>(['BUY', 'SELL', 'WRITE_OFF']);
 const NEGATIVE = new Set<Kind>(['BUY', 'WITHDRAWAL', 'TRANSFER_OUT', 'FEE', 'TAX', 'CAPITAL_CALL', 'COMMITMENT']);
 const NEW = '__new__';
+/** Buys and sells are entered as units × price per unit (+ or − the fee); the total can still be typed from the statement. */
+const PRICED = new Set<Kind>(['BUY', 'SELL']);
 
 const AMOUNT_LABEL: Partial<Record<Kind, string>> = {
   BUY: 'Total pagado (incluye comisión)',
@@ -36,6 +39,10 @@ interface Draft {
   account: string;
   asset: string;
   qty: string;
+  /** Price per unit in the account's currency, before the fee. */
+  price: string;
+  /** `unit`: the total is units × price ± fee; `total`: the total is typed (statement figure, or an asset without units). */
+  mode: 'unit' | 'total';
   amount: string;
   fee: string;
   note: string;
@@ -47,30 +54,23 @@ interface Draft {
   newAsset: Asset;
 }
 
-function parseNum(s: string): Decimal | undefined {
-  const t = s.trim().replace(/\s/g, '');
-  if (!t) return undefined;
-  // Accept "1.234.567,89" (es-CO) and "1234567.89".
-  const norm = /,\d*$/.test(t) ? t.replace(/\./g, '').replace(',', '.') : t.replace(/,/g, '');
-  try {
-    return dec(norm);
-  } catch {
-    return undefined;
-  }
-}
-
 export function TxForm({ editing, onDone }: { editing?: Transaction; onDone: () => void }) {
   const { data } = useDataset();
   const ctx = contextOf(data);
   const accounts = data.accounts;
-  const [d, setD] = useState<Draft>(() => ({
+  const [d, setD] = useState<Draft>(() => {
+    // An edited buy or sale opens as units × price only when that gives back its stored total to the cent.
+    const price = editing ? editablePrice(editing) : undefined;
+    return {
     kind: editing?.type ?? 'BUY',
     date: editing?.date ?? today(),
     account: editing?.account ?? accounts[0]?.id ?? '',
     asset: editing?.asset ?? '',
-    qty: editing?.qty?.toString() ?? '',
-    amount: editing ? editing.amount.abs().toString() : '',
-    fee: editing?.fee?.toString() ?? '',
+    qty: editing?.qty ? field(editing.qty) : '',
+    price: price ? field(price) : '',
+    mode: editing && !price ? 'total' : 'unit',
+    amount: editing ? field(editing.amount.abs()) : '',
+    fee: editing?.fee ? field(editing.fee) : '',
     note: editing?.note ?? '',
     estimated: editing?.estimated ?? false,
     toBank: true,
@@ -78,7 +78,8 @@ export function TxForm({ editing, onDone }: { editing?: Transaction; onDone: () 
     toAccount: accounts[1]?.id ?? '',
     amountIn: '',
     newAsset: { id: '', name: '', ccy: 'USD', bucket: 'acciones_usd', pricing: 'market', symbol: '' },
-  }));
+    };
+  });
   const [issues, setIssues] = useState<Issue[]>([]);
   const [confirmWarnings, setConfirmWarnings] = useState(false);
   const up = (p: Partial<Draft>) => {
@@ -104,11 +105,25 @@ export function TxForm({ editing, onDone }: { editing?: Transaction; onDone: () 
   const assetChoices = editing || d.kind === 'BUY' || d.kind === 'COMMITMENT' ? data.assets : inAccount(d.kind !== 'DIVIDEND');
   const pos = d.asset && held ? held.positions.get(positionKey(d.account, d.asset)) : undefined;
   const ccy = account?.ccy ?? '';
+  const qtyN = parseNum(d.qty, ccy);
+  const priceN = parseNum(d.price, ccy);
+  const feeN = parseNum(d.fee, ccy);
+  const amountN = parseNum(d.amount, ccy);
+  const computed = PRICED.has(d.kind) && qtyN && priceN ? tradeTotal(d.kind, qtyN, priceN, feeN) : undefined;
+  const assetOf = (id: string) => (id === NEW ? d.newAsset : data.assets.find((a) => a.id === id));
+  const chosen = d.asset ? assetOf(d.asset) : undefined;
+  // The stored close of that day, as a check on the price typed (only when it is quoted in the account's currency).
+  const stored = chosen?.pricing === 'market' && chosen.symbol ? ctx.book.prices.close(chosen.symbol, d.date) : undefined;
+  const close = stored && stored.ccy === ccy ? stored : undefined;
   const defaultEstimated = (assetId: string) => data.assets.find((a) => a.id === assetId)?.bucket === 'inmobiliario';
 
   function build(): { txs: Transaction[]; asset?: Asset } | string {
     if (!account) return 'Elige una cuenta';
-    const amount = parseNum(d.amount);
+    const byUnit = PRICED.has(d.kind) && d.mode === 'unit';
+    const amount = byUnit ? computed : parseNum(d.amount, ccy);
+    if (byUnit && !parseNum(d.qty, ccy)) return 'Escribe la cantidad';
+    if (byUnit && !parseNum(d.price, ccy)) return 'Escribe el precio por unidad';
+    if (byUnit && !computed!.gt(0)) return 'El total resulta negativo o cero: revisa el precio y la comisión';
     if (amount === undefined) return 'Escribe el monto';
     const signed = NEGATIVE.has(d.kind) ? amount.abs().neg() : d.kind === 'WRITE_OFF' ? dec(0) : amount.abs();
     let asset: Asset | undefined;
@@ -123,12 +138,12 @@ export function TxForm({ editing, onDone }: { editing?: Transaction; onDone: () 
       }
       if (!assetId) return 'Elige el activo';
     }
-    const qty = WITH_QTY.has(d.kind) ? parseNum(d.qty) : undefined;
-    const fee = parseNum(d.fee);
+    const qty = WITH_QTY.has(d.kind) ? parseNum(d.qty, ccy) : undefined;
+    const fee = parseNum(d.fee, ccy);
     const base = { date: d.date, account: d.account, ccy, note: d.note.trim() || undefined, estimated: d.estimated || undefined };
     if (d.kind === 'TRANSFER') {
       const to = data.accounts.find((a) => a.id === d.toAccount);
-      const amountIn = parseNum(d.amountIn);
+      const amountIn = parseNum(d.amountIn, to?.ccy);
       if (!to || to.id === account.id) return 'Elige una cuenta de destino distinta';
       if (amountIn === undefined) return 'Escribe el monto que llega a la cuenta destino';
       const transferId = newId();
@@ -214,7 +229,9 @@ export function TxForm({ editing, onDone }: { editing?: Transaction; onDone: () 
               required
               onChange={(e) => {
                 const v = (e.target as HTMLSelectElement).value;
-                up({ asset: v, estimated: d.kind === 'VALUATION' ? defaultEstimated(v) : d.estimated });
+                // An asset valued by hand (a fund, a copy portfolio) usually has no units: its buys go by total.
+                const manual = v !== NEW && data.assets.find((a) => a.id === v)?.pricing === 'manual';
+                up({ asset: v, estimated: d.kind === 'VALUATION' ? defaultEstimated(v) : d.estimated, mode: manual || d.mode === 'total' ? 'total' : 'unit' });
               }}
             >
               <option value="">— elige —</option>
@@ -273,25 +290,65 @@ export function TxForm({ editing, onDone }: { editing?: Transaction; onDone: () 
       <div class="form-grid">
         {WITH_QTY.has(d.kind) && (
           <label class="field">
-            Cantidad (unidades)
+            Cantidad (acciones o unidades){PRICED.has(d.kind) && d.mode === 'total' ? ', si aplica' : ''}
             <input inputMode="decimal" value={d.qty} onInput={(e) => up({ qty: (e.target as HTMLInputElement).value })} />
             {pos?.open && d.kind !== 'BUY' && <span class="small muted">Tienes {num(pos.qty)} a esa fecha</span>}
           </label>
         )}
-        {d.kind !== 'WRITE_OFF' && (
+        {PRICED.has(d.kind) && d.mode === 'unit' && (
+          <label class="field">
+            Precio de {d.kind === 'BUY' ? 'compra' : 'venta'} por unidad ({ccy})
+            <input inputMode="decimal" value={d.price} onInput={(e) => up({ price: (e.target as HTMLInputElement).value })} />
+            {close && (
+              <span class="small muted">
+                Cierre del {date(close.date)}: {money(close.close, ccy, 2)}
+              </span>
+            )}
+            {d.kind === 'SELL' && pos?.open && !pos.qty.isZero() && <span class="small muted">Costo promedio: {money(pos.cost.div(pos.qty), ccy, 4)} por unidad</span>}
+          </label>
+        )}
+        {PRICED.has(d.kind) && (
+          <label class="field">
+            Comisión{d.mode === 'total' ? ' incluida en el total' : ''} ({ccy}, opcional)
+            <input inputMode="decimal" value={d.fee} onInput={(e) => up({ fee: (e.target as HTMLInputElement).value })} />
+          </label>
+        )}
+        {d.kind !== 'WRITE_OFF' && !(PRICED.has(d.kind) && d.mode === 'unit') && (
           <label class="field">
             {AMOUNT_LABEL[d.kind] ?? 'Monto'} ({ccy})
             <input inputMode="decimal" required value={d.amount} onInput={(e) => up({ amount: (e.target as HTMLInputElement).value })} />
-            {d.kind === 'SELL' && pos?.open && !pos.qty.isZero() && (
-              <span class="small muted">Costo promedio: {money(pos.cost.div(pos.qty), ccy, 4)} por unidad</span>
+            {PRICED.has(d.kind) && qtyN && !qtyN.isZero() && amountN && (
+              <span class="small muted">
+                Equivale a {money(impliedPrice(d.kind, amountN, qtyN, feeN), ccy, 4)} por unidad{feeN ? ' sin la comisión' : ''}
+              </span>
             )}
+            {d.kind === 'SELL' && pos?.open && !pos.qty.isZero() && <span class="small muted">Costo promedio: {money(pos.cost.div(pos.qty), ccy, 4)} por unidad</span>}
           </label>
         )}
-        {(d.kind === 'BUY' || d.kind === 'SELL') && (
-          <label class="field">
-            Comisión incluida ({ccy}, opcional)
-            <input inputMode="decimal" value={d.fee} onInput={(e) => up({ fee: (e.target as HTMLInputElement).value })} />
-          </label>
+        {PRICED.has(d.kind) && (
+          <div class="field trade-total" style="grid-column: 1 / -1">
+            {d.mode === 'unit' ? (
+              <>
+                <span>
+                  {d.kind === 'BUY' ? 'Total que sale de la cuenta' : 'Total que entra a la cuenta'}:{' '}
+                  <strong class="num">{computed ? money(computed, ccy, 2) : '—'}</strong>
+                  {computed && (
+                    <span class="small muted">
+                      {' '}
+                      = {num(qtyN!)} × {num(priceN!)}{feeN && !feeN.isZero() ? ` ${d.kind === 'BUY' ? '+' : '−'} comisión ${num(feeN)}` : ''}
+                    </span>
+                  )}
+                </span>
+                <button type="button" class="link" onClick={() => up({ mode: 'total', amount: computed ? field(computed) : d.amount })}>
+                  El extracto dice otro total: escribirlo
+                </button>
+              </>
+            ) : (
+              <button type="button" class="link" onClick={() => up({ mode: 'unit' })}>
+                Calcular el total con cantidad y precio por unidad
+              </button>
+            )}
+          </div>
         )}
         {d.kind === 'TRANSFER' && (
           <>

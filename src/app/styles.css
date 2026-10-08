@@ -628,3 +628,29 @@ table.heatmap td.hm.p4, table.heatmap td.hm.n4 { color: #ffffff; }
 .minor-actions > summary { cursor: pointer; font-size: 14px; color: var(--muted); padding: 6px 0; }
 .minor-actions > .actions-list { margin-top: 8px; }
 @media (max-width: 420px) { .hide-sm { display: none; } }
+
+/* Composición (Seguimiento) */
+.comp-card h3 { font-size: 14px; margin: 0 0 10px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.comp-card h3 .muted { font-weight: 500; font-size: 12px; }
+.comp-chart { position: relative; margin: 8px 0 4px; }
+.comp-chart .col { cursor: pointer; }
+.comp-legend { margin-top: 6px; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+.comp-legend .item { grid-template-columns: 12px 1fr; }
+.tip-row { display: grid; grid-template-columns: 10px 1fr auto; gap: 6px; align-items: center; font-size: 12px; }
+.tip-row .dot, .comp-label .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.comp-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 24px; margin-top: 18px; }
+@media (max-width: 760px) { .comp-grid { grid-template-columns: 1fr; } }
+.comp-rows { display: flex; flex-direction: column; gap: 4px; }
+.comp-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(60px, 1.2fr); grid-template-areas: 'label val' 'track track'; gap: 3px 10px; padding: 6px 8px; margin: 0 -8px; border: 1px solid transparent; border-radius: var(--radius); background: none; text-align: left; font: inherit; color: inherit; }
+.comp-row.pick { cursor: pointer; }
+.comp-row.pick:hover { background: var(--surface-2); }
+.comp-row.pick[aria-pressed='true'] { border-color: var(--ink); }
+.comp-label { grid-area: label; display: flex; gap: 6px; align-items: baseline; font-size: 13px; font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.comp-label small { font-weight: 500; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+.comp-val { grid-area: val; text-align: right; font-family: var(--mono); font-size: 12px; white-space: nowrap; }
+.comp-track { grid-area: track; height: 8px; background: var(--surface-2); border-radius: 2px; overflow: hidden; }
+.comp-fill { display: block; height: 100%; border-radius: 0 4px 4px 0; }
+.comp-fill.est { background-image: repeating-linear-gradient(45deg, transparent 0 4px, rgba(255, 255, 255, 0.45) 4px 6px); }
+.comp-card h3 .push { margin-left: auto; font-size: 12px; font-weight: 500; }
+.trade-total { display: flex; flex-direction: row; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; }
+.trade-total .link { padding: 0; }
