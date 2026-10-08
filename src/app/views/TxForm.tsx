@@ -1,8 +1,7 @@
 import { useMemo, useState } from 'preact/hooks';
 import { holdingsAt } from '../../domain/holdings.ts';
 import { positionKey } from '../../domain/ledger.ts';
-import { dec } from '../../domain/money.ts';
-import type { Decimal } from '../../domain/money.ts';
+import { Decimal, dec } from '../../domain/money.ts';
 import type { Asset, Transaction, TxType } from '../../domain/types.ts';
 import { validateTransaction } from '../../domain/validate.ts';
 import type { Issue } from '../../domain/validate.ts';
@@ -10,7 +9,7 @@ import { bucketLabel } from '../analysis.ts';
 import { contextOf } from '../context.ts';
 import { date, money, num, today } from '../format.ts';
 import { TYPE_LABELS } from '../labels.ts';
-import { editablePrice, field, impliedPrice, parseNum, tradeTotal } from '../trade.ts';
+import { editablePrice, field, impliedPrice, parseNum, rateCheck, rateQuote, storedRate, tradeTotal } from '../trade.ts';
 import { addTransactions, newId, replaceTransactions, upsertAsset } from '../mutations.ts';
 import { getDataset, setDataset, useDataset } from '../store.ts';
 
@@ -41,6 +40,8 @@ interface Draft {
   qty: string;
   /** Price per unit in the account's currency, before the fee. */
   price: string;
+  /** The broker's rate between the asset's quote currency and the account's, when they differ, typed as `rateQuote` says (USD per EUR, CAD per USD). */
+  rate: string;
   /** `unit`: the total is units × price ± fee; `total`: the total is typed (statement figure, or an asset without units). */
   mode: 'unit' | 'total';
   amount: string;
@@ -59,8 +60,10 @@ export function TxForm({ editing, onDone }: { editing?: Transaction; onDone: () 
   const ctx = contextOf(data);
   const accounts = data.accounts;
   const [d, setD] = useState<Draft>(() => {
-    // An edited buy or sale opens as units × price only when that gives back its stored total to the cent.
-    const price = editing ? editablePrice(editing) : undefined;
+    // An edited buy or sale opens as units × price only when that gives back its stored total to the cent, and only
+    // when the asset is quoted in the account's currency (the rate of a cross-currency trade is not stored).
+    const sameCcy = data.assets.find((a) => a.id === editing?.asset)?.ccy === editing?.ccy;
+    const price = editing && sameCcy ? editablePrice(editing) : undefined;
     return {
     kind: editing?.type ?? 'BUY',
     date: editing?.date ?? today(),
@@ -68,6 +71,7 @@ export function TxForm({ editing, onDone }: { editing?: Transaction; onDone: () 
     asset: editing?.asset ?? '',
     qty: editing?.qty ? field(editing.qty) : '',
     price: price ? field(price) : '',
+    rate: '',
     mode: editing && !price ? 'total' : 'unit',
     amount: editing ? field(editing.amount.abs()) : '',
     fee: editing?.fee ? field(editing.fee) : '',
@@ -105,16 +109,26 @@ export function TxForm({ editing, onDone }: { editing?: Transaction; onDone: () 
   const assetChoices = editing || d.kind === 'BUY' || d.kind === 'COMMITMENT' ? data.assets : inAccount(d.kind !== 'DIVIDEND');
   const pos = d.asset && held ? held.positions.get(positionKey(d.account, d.asset)) : undefined;
   const ccy = account?.ccy ?? '';
-  const qtyN = parseNum(d.qty, ccy);
-  const priceN = parseNum(d.price, ccy);
-  const feeN = parseNum(d.fee, ccy);
-  const amountN = parseNum(d.amount, ccy);
-  const computed = PRICED.has(d.kind) && qtyN && priceN ? tradeTotal(d.kind, qtyN, priceN, feeN) : undefined;
   const assetOf = (id: string) => (id === NEW ? d.newAsset : data.assets.find((a) => a.id === id));
   const chosen = d.asset ? assetOf(d.asset) : undefined;
-  // The stored close of that day, as a check on the price typed (only when it is quoted in the account's currency).
+  // A stock quoted in another currency than the account's (euros on a dollar account): the price goes in its own
+  // currency and the user gives the rate the broker applied.
+  const tradeCcy = PRICED.has(d.kind) && chosen?.ccy && chosen.ccy !== ccy ? chosen.ccy : ccy;
+  const cross = tradeCcy !== ccy;
+  const qtyN = parseNum(d.qty, ccy);
+  const priceN = parseNum(d.price, tradeCcy);
+  const fxStored = cross ? storedRate(ctx.book.fx, tradeCcy, ccy, d.date) : undefined;
+  // The rate is typed as the broker shows it, above 1: USD per EUR, but CAD or COP per USD.
+  const q = rateQuote(tradeCcy, ccy, fxStored?.rate);
+  const refRate = fxStored ? (q.inverted ? new Decimal(1).div(fxStored.rate) : fxStored.rate).toSignificantDigits(6) : undefined;
+  const rateN = cross ? parseNum(d.rate, q.per) : undefined;
+  const feeN = parseNum(d.fee, ccy);
+  const amountN = parseNum(d.amount, ccy);
+  const computed = PRICED.has(d.kind) && qtyN && priceN && (!cross || rateN?.gt(0)) ? tradeTotal(d.kind, qtyN, priceN, feeN, rateN, q.inverted) : undefined;
+  // The stored close of that day, as a check on the price typed, in the currency the price is typed in.
   const stored = chosen?.pricing === 'market' && chosen.symbol ? ctx.book.prices.close(chosen.symbol, d.date) : undefined;
-  const close = stored && stored.ccy === ccy ? stored : undefined;
+  const close = stored && stored.ccy === tradeCcy ? stored : undefined;
+  const fxCheck = rateN && refRate ? rateCheck(rateN, refRate) : undefined;
   const defaultEstimated = (assetId: string) => data.assets.find((a) => a.id === assetId)?.bucket === 'inmobiliario';
 
   function build(): { txs: Transaction[]; asset?: Asset } | string {
@@ -122,7 +136,8 @@ export function TxForm({ editing, onDone }: { editing?: Transaction; onDone: () 
     const byUnit = PRICED.has(d.kind) && d.mode === 'unit';
     const amount = byUnit ? computed : parseNum(d.amount, ccy);
     if (byUnit && !parseNum(d.qty, ccy)) return 'Escribe la cantidad';
-    if (byUnit && !parseNum(d.price, ccy)) return 'Escribe el precio por unidad';
+    if (byUnit && !priceN) return 'Escribe el precio por unidad';
+    if (byUnit && cross && !rateN?.gt(0)) return `Escribe la tasa de cambio: cuántos ${q.per} por 1 ${q.base}`;
     if (byUnit && !computed!.gt(0)) return 'El total resulta negativo o cero: revisa el precio y la comisión';
     if (amount === undefined) return 'Escribe el monto';
     const signed = NEGATIVE.has(d.kind) ? amount.abs().neg() : d.kind === 'WRITE_OFF' ? dec(0) : amount.abs();
@@ -140,7 +155,10 @@ export function TxForm({ editing, onDone }: { editing?: Transaction; onDone: () 
     }
     const qty = WITH_QTY.has(d.kind) ? parseNum(d.qty, ccy) : undefined;
     const fee = parseNum(d.fee, ccy);
-    const base = { date: d.date, account: d.account, ccy, note: d.note.trim() || undefined, estimated: d.estimated || undefined };
+    // A cross-currency trade keeps its price and rate in the note: the amount alone does not show them.
+    const trace = byUnit && cross ? `${num(qtyN!)} × ${num(priceN!)} ${tradeCcy} a ${num(rateN!, 12)} ${q.per}/${q.base}` : '';
+    const note = [d.note.trim(), trace].filter(Boolean).join(' · ');
+    const base = { date: d.date, account: d.account, ccy, note: note || undefined, estimated: d.estimated || undefined };
     if (d.kind === 'TRANSFER') {
       const to = data.accounts.find((a) => a.id === d.toAccount);
       const amountIn = parseNum(d.amountIn, to?.ccy);
@@ -281,6 +299,10 @@ export function TxForm({ editing, onDone }: { editing?: Transaction; onDone: () 
               <label class="field">
                 Símbolo de cotización
                 <input value={d.newAsset.symbol ?? ''} placeholder="p. ej. AAPL, IWDA.AS, ECOPETROL.CL" onInput={(e) => up({ newAsset: { ...d.newAsset, symbol: (e.target as HTMLInputElement).value.toUpperCase() } })} />
+                <span class="small muted">El de Yahoo Finance: de él salen los precios del cierre. Vacío = el código.</span>
+                {d.newAsset.ccy !== 'USD' && !(d.newAsset.symbol || d.newAsset.id).includes('.') && (
+                  <span class="small warn-ink">Fuera de EE. UU. lleva el sufijo de la bolsa: .DE Xetra, .PA París, .AS Ámsterdam, .TO Toronto, .CL Colombia.</span>
+                )}
               </label>
             )}
           </div>
@@ -297,14 +319,30 @@ export function TxForm({ editing, onDone }: { editing?: Transaction; onDone: () 
         )}
         {PRICED.has(d.kind) && d.mode === 'unit' && (
           <label class="field">
-            Precio de {d.kind === 'BUY' ? 'compra' : 'venta'} por unidad ({ccy})
+            Precio de {d.kind === 'BUY' ? 'compra' : 'venta'} por unidad ({tradeCcy})
             <input inputMode="decimal" value={d.price} onInput={(e) => up({ price: (e.target as HTMLInputElement).value })} />
             {close && (
               <span class="small muted">
-                Cierre del {date(close.date)}: {money(close.close, ccy, 2)}
+                Cierre del {date(close.date)}: {money(close.close, tradeCcy, 2)}
               </span>
             )}
             {d.kind === 'SELL' && pos?.open && !pos.qty.isZero() && <span class="small muted">Costo promedio: {money(pos.cost.div(pos.qty), ccy, 4)} por unidad</span>}
+          </label>
+        )}
+        {PRICED.has(d.kind) && d.mode === 'unit' && cross && (
+          <label class="field">
+            Tasa de cambio ({q.per} por 1 {q.base})
+            <input inputMode="decimal" value={d.rate} placeholder={refRate ? num(refRate, 10) : undefined} onInput={(e) => up({ rate: (e.target as HTMLInputElement).value })} />
+            <span class="small muted">
+              La que aplicó el bróker; está en la confirmación de la operación.
+              {fxStored && refRate && ` Referencia guardada del ${date(fxStored.date)}: ${num(refRate, 10)}.`}
+            </span>
+            {fxCheck === 'inverted' && (
+              <span class="small warn-ink">
+                Parece invertida: es {q.per} por 1 {q.base}, cerca de {num(refRate!, 10)}.
+              </span>
+            )}
+            {fxCheck === 'far' && <span class="small warn-ink">Está a más de 5 % de la referencia guardada: revísala.</span>}
           </label>
         )}
         {PRICED.has(d.kind) && (
@@ -335,7 +373,7 @@ export function TxForm({ editing, onDone }: { editing?: Transaction; onDone: () 
                   {computed && (
                     <span class="small muted">
                       {' '}
-                      = {num(qtyN!)} × {num(priceN!)}{feeN && !feeN.isZero() ? ` ${d.kind === 'BUY' ? '+' : '−'} comisión ${num(feeN)}` : ''}
+                      = {num(qtyN!)} × {num(priceN!)}{cross ? ` ${tradeCcy} ${q.inverted ? '÷' : '×'} ${num(rateN!, 12)}` : ''}{feeN && !feeN.isZero() ? ` ${d.kind === 'BUY' ? '+' : '−'} comisión ${num(feeN)}` : ''}
                     </span>
                   )}
                 </span>

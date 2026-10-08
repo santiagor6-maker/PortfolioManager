@@ -99,7 +99,7 @@ test('buy a new asset created inline', async ({ page }) => {
   await form.getByLabel('Fecha').fill('2025-06-12');
   await form.getByRole('combobox', { name: /^Cuenta/ }).selectOption('broker-usd');
   await form.getByRole('combobox', { name: /^Activo/ }).selectOption('__new__');
-  await form.getByLabel('Código').fill('NEWCO');
+  await form.getByLabel('Código', { exact: true }).fill('NEWCO');
   await form.getByLabel('Nombre').fill('New Co');
   await form.getByLabel(/^Cantidad/).fill('1');
   await form.getByLabel(/Precio de compra por unidad/).fill('10');
@@ -107,6 +107,49 @@ test('buy a new asset created inline', async ({ page }) => {
   await expect(page.getByRole('cell', { name: 'New Co' })).toBeVisible();
   await page.getByRole('link', { name: 'Inversiones', exact: true }).click();
   await expect(page.getByText('al costo · falta dato')).toBeVisible();
+});
+
+test('a stock quoted in euros on a dollar account asks the broker rate', async ({ page }, info) => {
+  await loadDemo(page);
+  await page.getByRole('link', { name: 'Movimientos' }).click();
+  await page.getByRole('button', { name: '+ Registrar movimiento' }).click();
+  const form = page.getByRole('form', { name: 'Nuevo movimiento' });
+  await form.getByLabel('Fecha').fill('2025-06-12');
+  await form.getByRole('combobox', { name: /^Cuenta/ }).selectOption('broker-usd');
+  await form.getByRole('combobox', { name: /^Activo/ }).selectOption('__new__');
+  await form.getByLabel('Código', { exact: true }).fill('NA9');
+  await form.getByLabel('Nombre').fill('Euro Co');
+  await form.getByLabel('Moneda de cotización').fill('EUR');
+  await form.getByLabel(/^Cantidad/).fill('10');
+  await form.getByLabel(/Precio de compra por unidad \(EUR\)/).fill('12,50');
+  await form.getByRole('button', { name: 'Guardar' }).click();
+  await expect(form.getByRole('alert')).toContainText('Escribe la tasa de cambio: cuántos USD por 1 EUR');
+  await form.getByLabel(/Tasa de cambio \(USD por 1 EUR\)/).fill('1,085');
+  await form.getByLabel(/^Comisión/).fill('1');
+  // 10 × 12,50 EUR × 1,085 + 1 = 136,63 USD.
+  await expect(form.locator('.trade-total')).toContainText('Total que sale de la cuenta: US$\u00a0136,63');
+  if (shots) await form.screenshot({ path: `${shots}/compra-eur-${info.project.name}.png` });
+  await form.getByRole('button', { name: 'Guardar' }).click();
+  await expect(page.getByRole('cell', { name: 'US$ -136,63' })).toBeVisible();
+  // The price and rate stay in the note, since the amount alone does not show them.
+  await expect(page.getByText('10 × 12,5 EUR a 1,085 USD/EUR')).toBeVisible();
+
+  // A peso stock bought from the dollar account: the stored TRM is the reference, and a rate typed upside down is flagged.
+  await page.getByRole('button', { name: '+ Registrar movimiento' }).click();
+  await form.getByLabel('Fecha').fill('2025-06-12');
+  await form.getByRole('combobox', { name: /^Cuenta/ }).selectOption('broker-usd');
+  await form.getByRole('combobox', { name: /^Activo/ }).selectOption('ANDES');
+  await expect(form.getByText(/Referencia guardada del/)).toBeVisible();
+  // Typed as brokers show it, pesos per dollar; the other way round is flagged.
+  const rate = form.getByLabel(/Tasa de cambio \(COP por 1 USD\)/);
+  await rate.fill('0,000234');
+  await expect(form.getByText(/Parece invertida/)).toBeVisible();
+  await rate.fill('4.280');
+  await expect(form.getByText(/Parece invertida|más de 5 %/)).toHaveCount(0);
+  await form.getByLabel(/^Cantidad/).fill('1000');
+  await form.getByLabel(/Precio de compra por unidad \(COP\)/).fill('2.140');
+  // 1.000 × 2.140 COP ÷ 4.280 = 500,00 USD.
+  await expect(form.locator('.trade-total')).toContainText('US$\u00a0500,00');
 });
 
 test('month-end close: enter a value, see the month result, close the month', async ({ page }, info) => {
