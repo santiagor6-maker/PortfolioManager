@@ -28,7 +28,7 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
 
 ## Registro
 
-**2026-10-08 — Composición en Seguimiento, compras por cantidad × precio**
+**2026-10-08 — Composición en Seguimiento, compras por cantidad × precio** (9f84c59)
 - Seguimiento abre con «Composición del portafolio»: columnas 100 % por clase mes a mes (clic = ese mes), clases del mes y posiciones de la clase elegida (% de la clase y del total), con o sin inmobiliario. Paleta validada con el validador de dataviz (claro y oscuro).
 - Movimientos: compra y venta se registran con cantidad, precio por unidad y comisión; la app calcula el total al centavo y muestra el cierre guardado del día como referencia. Se puede escribir el total del extracto (muestra el precio implícito). En COP, «2.345» es dos mil trescientos cuarenta y cinco.
 - `finance-reviewer` (3 rondas): venta con comisión mayor que el bruto rechazada, miles en pesos, edición que nunca cambia el monto (campos con coma decimal), posiciones negativas aparte.
