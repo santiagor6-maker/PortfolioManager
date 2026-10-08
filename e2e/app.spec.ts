@@ -31,12 +31,12 @@ test('demo portfolio: summary, positions, comparison, persistence', async ({ pag
   await page.getByRole('button', { name: 'USD', exact: true }).click();
   await expect(page.locator('.hero .figure')).toContainText('US$');
 
-  await page.getByRole('link', { name: 'Activos' }).click();
+  await page.getByRole('link', { name: 'Inversiones', exact: true }).click();
   await expect(page.getByRole('cell', { name: /Copy portfolio Tech \(demo\)/ })).toBeVisible();
   await expect(page.getByText(/precio de lista .* anual sin apalancamiento/)).toBeVisible();
   if (shots) await page.screenshot({ path: `${shots}/activos-${info.project.name}.png`, fullPage: true });
 
-  await page.getByRole('link', { name: 'Comparación' }).click();
+  await page.getByRole('link', { name: 'Contra el mercado', exact: true }).click();
   await expect(page.locator('.card').filter({ hasText: 'Crecimiento de 100' }).locator('.chart svg path.series')).toHaveCount(2);
   if (shots) await page.screenshot({ path: `${shots}/comparacion-${info.project.name}.png`, fullPage: true });
 
@@ -105,7 +105,7 @@ test('buy a new asset created inline', async ({ page }) => {
   await form.getByLabel(/Precio de compra por unidad/).fill('10');
   await form.getByRole('button', { name: 'Guardar' }).click();
   await expect(page.getByRole('cell', { name: 'New Co' })).toBeVisible();
-  await page.getByRole('link', { name: 'Activos' }).click();
+  await page.getByRole('link', { name: 'Inversiones', exact: true }).click();
   await expect(page.getByText('al costo · falta dato')).toBeVisible();
 });
 
@@ -152,7 +152,7 @@ test('month-end close: enter a value, see the month result, close the month', as
 
 test('month-by-month tracking with total and subtotal without real estate', async ({ page }, info) => {
   await loadDemo(page);
-  await page.getByRole('link', { name: 'Seguimiento' }).click();
+  await page.getByRole('link', { name: 'Mes a mes', exact: true }).click();
   const grid = page.locator('table.track');
   await expect(grid.getByRole('rowheader', { name: 'TOTAL', exact: true })).toBeVisible();
   await expect(grid.getByRole('rowheader', { name: 'Subtotal sin inmobiliario' })).toBeVisible();
@@ -190,7 +190,13 @@ test('month-by-month tracking with total and subtotal without real estate', asyn
 
 test('price tracking: set a target and see the progress; theme switch', async ({ page }, info) => {
   await loadDemo(page);
-  await page.getByRole('link', { name: 'Precios' }).click();
+  await page.goto('#/precios'); // an old link still lands on Inversiones → Precios y objetivos
+  await expect(page.getByRole('link', { name: 'Inversiones', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('button', { name: 'Precios y objetivos' })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'Posiciones', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Posiciones', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('table.prices')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Precios y objetivos' }).click();
   const table = page.locator('table.prices');
   const row = table.locator('tr.stock').filter({ hasText: 'Sample Corp' });
   await expect(row).toContainText('sin objetivo');
@@ -244,7 +250,7 @@ test('summary analysis blocks: gain bridge, monthly heatmap and risk; hide and r
   await expect(heat).toHaveCount(0);
   expect(await order()).toBe(true);
 
-  await page.getByRole('link', { name: 'Comparación' }).click();
+  await page.getByRole('link', { name: 'Contra el mercado', exact: true }).click();
   const risk = page.locator('.card').filter({ has: page.getByRole('heading', { name: /Riesgo: cuánto se mueve/ }) });
   await expect(risk.getByRole('row')).toHaveCount(3);
   await expect(risk.locator('.chart svg path.series')).toHaveCount(2);
@@ -281,7 +287,7 @@ test('summary is modular: click a class, Ctrl-click to leave one out, the choice
 
 test('indicators: composition filters the table; edit the thesis and fundamentals', async ({ page }, info) => {
   await loadDemo(page);
-  await page.getByRole('link', { name: 'Indicadores' }).click();
+  await page.getByRole('link', { name: 'Tesis', exact: true }).click();
   const rows = page.locator('table.ind tr.stock');
   await expect(rows).toHaveCount(4);
   await page.locator('.wpanel').filter({ hasText: 'Mercado' }).getByRole('button', { name: /Colombia/ }).click();
@@ -316,7 +322,8 @@ test('indicators: composition filters the table; edit the thesis and fundamental
   if (shots) await page.screenshot({ path: `${shots}/indicadores-${info.project.name}.png`, fullPage: true });
 
   // Precios links straight to the stock's thesis.
-  await page.getByRole('link', { name: 'Precios' }).click();
+  await page.getByRole('link', { name: 'Inversiones', exact: true }).click();
+  await page.getByRole('button', { name: 'Precios y objetivos' }).click();
   await page.locator('table.prices tr.stock').filter({ hasText: 'Acme Industries' }).getByRole('button', { name: /Acme/ }).click();
   await page.getByRole('link', { name: /Tesis, precio optimista y fundamentales de Acme/ }).click();
   const acme = page.getByRole('form', { name: 'Tesis de Acme Industries' });

@@ -93,7 +93,7 @@ switch (cmd) {
       const age = b.last ? daysBetween(b.last, s.month) : undefined;
       const flag = age === undefined || age > STALE_DAYS;
       if (flag) warnings++;
-      const why = age === undefined || age > 10 ? ' — la Comparación de ese mes quedaría sin índice' : flag ? ` (${age} días antes del cierre)` : '';
+      const why = age === undefined || age > 10 ? ' — «Contra el mercado» de ese mes quedaría sin índice' : flag ? ` (${age} días antes del cierre)` : '';
       console.log(`${flag ? 'AVISO    ' : ''}Índice ${b.symbol} (${b.name}): último dato ${b.last ? date(b.last) : 'ninguno'}${why}`);
     }
     console.log(`Precios de mercado al cierre: ${s.priced} con precio`);

@@ -3,11 +3,10 @@ import { useEffect, useState } from 'preact/hooks';
 import './styles.css';
 import { ready, useDataset, usePref } from './store.ts';
 import { Summary } from './views/Summary.tsx';
-import { Positions } from './views/Positions.tsx';
+import { Investments } from './views/Investments.tsx';
 import { Transactions } from './views/Transactions.tsx';
 import { MonthlyClose } from './views/MonthlyClose.tsx';
 import { Tracking } from './views/Tracking.tsx';
-import { Prices } from './views/Prices.tsx';
 import { Indicators } from './views/Indicators.tsx';
 import { Dividends } from './views/Dividends.tsx';
 import { Advice } from './views/Advice.tsx';
@@ -17,19 +16,29 @@ import { initSync, syncConfigured, useSync } from './sync.ts';
 import { autoSec } from './views/SecCard.tsx';
 import { STATUS_LABEL } from './views/SyncCard.tsx';
 
+// Most visited first; the ones for entering data last.
 const ROUTES = [
   { id: 'resumen', label: 'Resumen', view: Summary },
-  { id: 'seguimiento', label: 'Seguimiento', view: Tracking },
-  { id: 'cierre', label: 'Cierre del mes', view: MonthlyClose },
-  { id: 'precios', label: 'Precios', view: Prices },
-  { id: 'indicadores', label: 'Indicadores', view: Indicators },
+  { id: 'inversiones', label: 'Inversiones', view: Investments },
+  { id: 'mes-a-mes', label: 'Mes a mes', view: Tracking },
   { id: 'dividendos', label: 'Dividendos', view: Dividends },
-  { id: 'orientacion', label: 'Orientación', view: Advice },
-  { id: 'activos', label: 'Activos', view: Positions },
-  { id: 'comparacion', label: 'Comparación', view: Compare },
+  { id: 'mercado', label: 'Contra el mercado', view: Compare },
+  { id: 'tesis', label: 'Tesis', view: Indicators },
+  { id: 'plan', label: 'Mi plan', view: Advice },
+  { id: 'cierre', label: 'Cierre del mes', view: MonthlyClose },
   { id: 'movimientos', label: 'Movimientos', view: Transactions },
   { id: 'datos', label: 'Datos', view: DataView },
 ] as const;
+
+/** Earlier names of the tabs, so saved links and bookmarks still land on the same screen. */
+const OLD_ROUTES: Record<string, string> = {
+  activos: 'inversiones?ver=posiciones',
+  precios: 'inversiones?ver=precios',
+  seguimiento: 'mes-a-mes',
+  comparacion: 'mercado',
+  indicadores: 'tesis',
+  orientacion: 'plan',
+};
 
 // Apply a saved theme before the first paint, so a dark choice does not flash light.
 try {
@@ -77,7 +86,14 @@ function SyncBadge() {
 }
 
 function useRoute(): string {
-  const get = () => location.hash.replace(/^#\/?/, '').split('?')[0] || '';
+  const get = () => {
+    const [id = '', query] = location.hash.replace(/^#\/?/, '').split('?');
+    const to = OLD_ROUTES[id];
+    if (!to) return id;
+    const keep = query ? (to.includes('?') ? '&' : '?') + query : '';
+    history.replaceState(null, '', `#/${to}${keep}`);
+    return to.split('?')[0]!;
+  };
   const [r, setR] = useState(get);
   useEffect(() => {
     const on = () => setR(get());

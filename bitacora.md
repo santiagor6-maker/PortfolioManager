@@ -8,7 +8,7 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
   - Skills, subagentes y hooks.
   - Visualizaciones de análisis: Resumen modular, puente de ganancia, mapa mensual, riesgo, peso vs potencial.
   - Pestaña Dividendos (inspirada en getquin).
-  - Pestaña Orientación: plan de acción contra el perfil del usuario y contra los índices (evaluada por un estratega y por `finance-reviewer`).
+  - Pestaña Mi plan (antes Orientación): plan de acción contra el perfil del usuario y contra los índices. Pestañas renombradas y ordenadas por uso (10).
 - Plan acordado:
   1. Netlify.
   2. Supabase con datos cifrados en el navegador.
@@ -27,6 +27,10 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
 - Mejora anotada: el aviso de TRM del Cierre nombra el primer mes pendiente, no el mes que se está cerrando.
 
 ## Registro
+
+**2026-10-08 — Pestañas renombradas y fusionadas (11 → 10)**
+- El usuario aprobó la propuesta: Resumen · Inversiones (Activos + Precios, con subvistas Posiciones y Precios y objetivos) · Mes a mes (Seguimiento) · Dividendos · Contra el mercado (Comparación) · Tesis (Indicadores) · Mi plan (Orientación) · Cierre del mes · Movimientos · Datos. Orden por frecuencia de uso.
+- Los enlaces viejos (`#/activos`, `#/precios`, `#/seguimiento`…) redirigen a la pestaña nueva; textos, skills y CLAUDE.md actualizados.
 
 **2026-10-08 — Composición en Seguimiento, compras por cantidad × precio** (9f84c59)
 - Seguimiento abre con «Composición del portafolio»: columnas 100 % por clase mes a mes (clic = ese mes), clases del mes y posiciones de la clase elegida (% de la clase y del total), con o sin inmobiliario. Paleta validada con el validador de dataviz (claro y oscuro).

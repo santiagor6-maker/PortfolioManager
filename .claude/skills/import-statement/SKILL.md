@@ -80,4 +80,4 @@ Before step 6, re-run its `checks.ts ledger` and `holdings` commands yourself. T
    - Tell the user how to import in **Datos**:
      1. First **Cuentas, activos e índices** (only if there are new assets).
      2. Then **Movimientos (.csv)**, after choosing **"Agregar a los existentes"** in the selector. The default, "Reemplazar", would erase their ledger.
-   - Afterwards they should check the account in **Activos** and download a new backup.
+   - Afterwards they should check the account in **Inversiones** and download a new backup.

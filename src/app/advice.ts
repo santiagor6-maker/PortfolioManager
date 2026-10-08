@@ -1266,7 +1266,7 @@ export function advise(ctx: Context, ccy: Ccy, asOf: IsoDate, profile?: Investor
       id: 'targets', priority: 'media', area: 'Tesis',
       title: `${reached.length === 1 ? '1 acción ya llegó' : `${reached.length} acciones ya llegaron`} a tu precio objetivo`,
       finding: reached.map((x) => `${x.name} (precio ${pct(1 / (1 + x.upside) - 1, 0)} por encima del objetivo)`).join(' · '),
-      action: 'Revisa la tesis de cada una: si el objetivo se cumplió y no hay razones nuevas, vender (o al menos no comprar más) es seguir tu propio plan; si las hay, sube el objetivo y escribe por qué en Indicadores.',
+      action: 'Revisa la tesis de cada una: si el objetivo se cumplió y no hay razones nuevas, vender (o al menos no comprar más) es seguir tu propio plan; si las hay, sube el objetivo y escribe por qué en Tesis.',
       evidence: reached.map((x) => ({ label: x.name, value: `precio ${x.price ?? '—'} ${x.ccy} · objetivo ${x.target ?? '—'} ${x.ccy}` })),
     });
   }

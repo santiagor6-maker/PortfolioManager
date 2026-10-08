@@ -1,12 +1,12 @@
 ---
 name: thesis-review
-description: Research the economic-moat ratings and fundamentals that providers publish for the user's stocks (Morningstar, GuruFocus, company filings…), each with its source, date and link, and hand the user a validated file for the Indicadores tab. Use when the user asks to update or review the "foso económico", moat ratings, fundamentals, the "tesis" of one or more holdings, or "revisa mis acciones".
+description: Research the economic-moat ratings and fundamentals that providers publish for the user's stocks (Morningstar, GuruFocus, company filings…), each with its source, date and link, and hand the user a validated file for the Tesis tab (formerly Indicadores). Use when the user asks to update or review the "foso económico", moat ratings, fundamentals, the "tesis" of one or more holdings, or "revisa mis acciones".
 argument-hint: "[TICKER ... | todas]"
 ---
 
 # Thesis review: moats and fundamentals from providers
 
-Indicadores shows what research providers say about each holding (`Asset.moats`) and dated fundamentals (`Asset.fundamentals`). The user's own calls are not yours to change:
+Tesis (formerly Indicadores) shows what research providers say about each holding (`Asset.moats`) and dated fundamentals (`Asset.fundamentals`). The user's own calls are not yours to change:
 - target (`target`)
 - optimistic target (`targetHigh`)
 - strategy (`strategy`)
@@ -68,7 +68,7 @@ Indicadores shows what research providers say about each holding (`Asset.moats`)
 
 6. **Hand over.**
    - Send the file (the file-sending tool when available, otherwise its path).
-   - The user imports it in **Datos → Cuentas, activos e índices (.json)**; the result shows in **Indicadores → Foso económico**.
+   - The user imports it in **Datos → Cuentas, activos e índices (.json)**; the result shows in **Tesis → Foso económico**.
    - In the chat, give a table per asset: provider, rating, date, link, and what changed since the previous rating.
    - Then give what you couldn't get and why (not rated, blocked, premium).
 

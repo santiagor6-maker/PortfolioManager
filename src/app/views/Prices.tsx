@@ -366,7 +366,7 @@ export function Prices() {
                               <h3 style="margin-top:12px">Objetivo y estrategia</h3>
                               <Edit r={r} strategies={strategies} onDone={() => setOpen(undefined)} />
                               <p class="small" style="margin-top:10px">
-                                <a href={`#/indicadores?accion=${encodeURIComponent(r.asset)}`}>Tesis, precio optimista y fundamentales de {r.name} →</a>
+                                <a href={`#/tesis?accion=${encodeURIComponent(r.asset)}`}>Tesis, precio optimista y fundamentales de {r.name} →</a>
                               </p>
                             </div>
                           </div>

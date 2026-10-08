@@ -149,7 +149,7 @@ test('Fundamentales de la SEC: read on opening the published app, shown with the
   await page.route(`${origin}/api/quotes**`, (route) => json(route, {}));
 
   await loadDemo(page, `${origin}/`);
-  await page.getByRole('link', { name: 'Indicadores' }).click();
+  await page.getByRole('link', { name: 'Tesis', exact: true }).click();
   await page.getByRole('button', { name: 'Fundamentales' }).click();
   const card = page.locator('.sec-card');
   await expect(card.getByRole('status').filter({ hasText: 'Fundamentales actualizados' })).toContainText('Fundamentales actualizados: 2 acciones, sin cambios en las cifras.', { timeout: 10_000 });

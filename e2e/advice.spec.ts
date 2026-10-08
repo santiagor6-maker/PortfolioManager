@@ -12,7 +12,7 @@ test('Orientación: asks for a profile, then measures the mix against it and eve
   await page.getByRole('button', { name: 'Cargar demostración' }).first().click();
   await expect(page.locator('.hero .kicker')).toHaveText('Valor del portafolio');
 
-  await page.getByRole('link', { name: 'Orientación' }).click();
+  await page.getByRole('link', { name: 'Mi plan', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Tu plan de acción' })).toBeVisible();
   const plan = page.locator('.actions-list');
   // Without a profile the first point asks for one.

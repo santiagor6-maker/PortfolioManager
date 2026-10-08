@@ -391,7 +391,7 @@ export function MonthlyClose() {
                 Reabrir el mes
               </button>
             )}
-            <a href="#/seguimiento" class="small">
+            <a href="#/mes-a-mes" class="small">
               Ver el seguimiento mes a mes
             </a>
           </div>

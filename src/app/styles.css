@@ -654,3 +654,4 @@ table.heatmap td.hm.p4, table.heatmap td.hm.n4 { color: #ffffff; }
 .comp-card h3 .push { margin-left: auto; font-size: 12px; font-weight: 500; }
 .trade-total { display: flex; flex-direction: row; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; }
 .trade-total .link { padding: 0; }
+.subtabs { margin-bottom: 14px; }

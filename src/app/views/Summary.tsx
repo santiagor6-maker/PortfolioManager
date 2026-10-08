@@ -283,7 +283,7 @@ function ClassCard({ b, ccy, state, choose }: { b: Report['buckets'][number]; cc
       }}
     >
       <div class="top">
-        <a href={`#/activos?clase=${b.bucket}`}>{b.label}</a>
+        <a href={`#/inversiones?ver=posiciones&clase=${b.bucket}`}>{b.label}</a>
         <span class="small muted">{pct(b.weight)} del total</span>
       </div>
       <div class="big">{money(b.value, ccy)}</div>
@@ -303,7 +303,7 @@ function ClassCard({ b, ccy, state, choose }: { b: Report['buckets'][number]; cc
         </div>
       </div>
       {b.leveraged ? (
-        <p class="small muted">*Pagado a plazos sobre una base pequeña: su TWR no es comparable. Mira la XIRR y la valorización del precio de lista en Activos.</p>
+        <p class="small muted">*Pagado a plazos sobre una base pequeña: su TWR no es comparable. Mira la XIRR y la valorización del precio de lista en Inversiones.</p>
       ) : items.length > 1 ? (
         <BarList items={items} label={`TWR anual de ${b.label} frente a sus índices`} />
       ) : (
@@ -395,7 +395,7 @@ function DetailTable({ rep, ccy, sel, mix, labelOf }: { rep: Report; ccy: string
       </div>
       <p class="small muted" style="margin-top:8px">
         Periodo por clase: desde su primer movimiento dentro del periodo elegido. Realizada y dividendos: acumulados hasta la fecha de corte, cada uno a la tasa de su fecha.
-        {rep.buckets.some((b) => b.leveraged) && ' *n. c.: el TWR de un inmueble sobre planos no es comparable porque se paga a plazos sobre una base pequeña; mira la XIRR y la valorización del precio de lista en Activos.'}
+        {rep.buckets.some((b) => b.leveraged) && ' *n. c.: el TWR de un inmueble sobre planos no es comparable porque se paga a plazos sobre una base pequeña; mira la XIRR y la valorización del precio de lista en Inversiones.'}
       </p>
     </>
   );
@@ -557,7 +557,7 @@ function BridgeCard({ m, from, ccy }: { m: Monthly; from?: string; ccy: string }
 function NotComparable() {
   return (
     <p class="muted small">
-      n. c.: esta selección es un inmueble pagado a plazos sobre una base pequeña. Su rentabilidad mes a mes y su riesgo no son comparables; mira la XIRR y la valorización del precio de lista en Activos.
+      n. c.: esta selección es un inmueble pagado a plazos sobre una base pequeña. Su rentabilidad mes a mes y su riesgo no son comparables; mira la XIRR y la valorización del precio de lista en Inversiones.
     </p>
   );
 }

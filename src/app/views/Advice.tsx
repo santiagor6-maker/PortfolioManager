@@ -55,7 +55,7 @@ function AdviceView({ a }: { a: Report }) {
       {a.error && <div class="notice err">{a.error}</div>}
 
       <section class="card advice-intro">
-        <div class="kicker">Orientación</div>
+        <div class="kicker">Mi plan</div>
         <h2>Tu plan de acción</h2>
         <p class="small muted">
           Un diagnóstico de tu portafolio con tus propios datos: cómo le fue a cada parte frente a su índice con el mismo dinero, qué tan concentrado y líquido estás, qué necesitas
@@ -70,7 +70,7 @@ function AdviceView({ a }: { a: Report }) {
               {a.top.map((x) => (
                 <li>
                   <a
-                    href="#/orientacion"
+                    href="#/plan"
                     onClick={(e) => {
                       e.preventDefault();
                       document.querySelector(`[data-id="${x.id}"]`)?.scrollIntoView({ behavior: 'smooth' });
