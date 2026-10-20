@@ -9,7 +9,7 @@ import { bucketLabel } from '../analysis.ts';
 import { contextOf } from '../context.ts';
 import { date, money, num, today } from '../format.ts';
 import { TYPE_LABELS } from '../labels.ts';
-import { editablePrice, field, impliedPrice, parseNum, rateCheck, rateQuote, storedRate, tradeTotal } from '../trade.ts';
+import { editablePrice, field, impliedPrice, parseNum, rateCheck, rateQuote, storedRate, tradeTotal, typedTradeCash } from '../trade.ts';
 import { addTransactions, newId, replaceTransactions, upsertAsset } from '../mutations.ts';
 import { getDataset, setDataset, useDataset } from '../store.ts';
 
@@ -23,8 +23,8 @@ const NEW = '__new__';
 const PRICED = new Set<Kind>(['BUY', 'SELL']);
 
 const AMOUNT_LABEL: Partial<Record<Kind, string>> = {
-  BUY: 'Total pagado (incluye comisión)',
-  SELL: 'Total recibido (neto de comisión)',
+  BUY: 'Total que salió de la cuenta (con comisión)',
+  SELL: 'Total que entró a la cuenta (después de comisión)',
   DIVIDEND: 'Dividendo neto recibido',
   VALUATION: 'Valor de mercado a la fecha',
   COMMITMENT: 'Precio total del contrato',
@@ -42,6 +42,8 @@ interface Draft {
   price: string;
   /** The broker's rate between the asset's quote currency and the account's, when they differ, typed as `rateQuote` says (USD per EUR, CAD per USD). */
   rate: string;
+  /** In total mode, the typed total is the statement's figure before the fee (the fee is then taken off a sale, added to a buy). */
+  beforeFee: boolean;
   /** `unit`: the total is units × price ± fee; `total`: the total is typed (statement figure, or an asset without units). */
   mode: 'unit' | 'total';
   amount: string;
@@ -73,6 +75,7 @@ export function TxForm({ editing, onDone }: { editing?: Transaction; onDone: () 
     qty: editing?.qty ? field(editing.qty) : '',
     price: price ? field(price) : '',
     rate: '',
+    beforeFee: false,
     mode: editing && !price ? 'total' : 'unit',
     amount: editing ? field(editing.amount.abs()) : '',
     fee: editing?.fee ? field(editing.fee) : '',
@@ -125,6 +128,8 @@ export function TxForm({ editing, onDone }: { editing?: Transaction; onDone: () 
   const feeN = parseNum(d.fee, ccy);
   const amountN = parseNum(d.amount, ccy);
   const computed = PRICED.has(d.kind) && qtyN && priceN && (!cross || rateN?.gt(0)) ? tradeTotal(d.kind, qtyN, priceN, feeN, rateN, q.inverted) : undefined;
+  // A typed total: what moved in the account, or the trade's value before the fee (statement's gross), fee then applied.
+  const typedCash = PRICED.has(d.kind) && amountN ? typedTradeCash(d.kind, amountN, feeN, d.beforeFee) : amountN;
   // The stored close of that day, as a check on the price typed, in the currency the price is typed in.
   const stored = chosen?.pricing === 'market' && chosen.symbol ? ctx.book.prices.close(chosen.symbol, d.date) : undefined;
   const close = stored && stored.ccy === tradeCcy ? stored : undefined;
@@ -135,7 +140,8 @@ export function TxForm({ editing, onDone }: { editing?: Transaction; onDone: () 
   function build(): { txs: Transaction[]; asset?: Asset } | string {
     if (!account) return 'Elige una cuenta';
     const byUnit = PRICED.has(d.kind) && d.mode === 'unit';
-    const amount = byUnit ? computed : parseNum(d.amount, ccy);
+    const amount = byUnit ? computed : PRICED.has(d.kind) ? typedCash : parseNum(d.amount, ccy);
+    if (!byUnit && PRICED.has(d.kind) && d.beforeFee && amount && !amount.gt(0)) return 'El total resulta negativo o cero: revisa el valor y la comisión';
     if (byUnit && !parseNum(d.qty, ccy)) return 'Escribe la cantidad';
     if (byUnit && !priceN) return 'Escribe el precio por unidad';
     if (byUnit && cross && !rateN?.gt(0)) return `Escribe la tasa de cambio: cuántos ${q.per} por 1 ${q.base}`;
@@ -352,13 +358,26 @@ export function TxForm({ editing, onDone }: { editing?: Transaction; onDone: () 
             <input inputMode="decimal" value={d.fee} onInput={(e) => up({ fee: (e.target as HTMLInputElement).value })} />
           </label>
         )}
+        {PRICED.has(d.kind) && d.mode === 'total' && (
+          <div class="field" style="grid-column: 1 / -1">
+            El total que escribes es
+            <div class="seg" role="group" aria-label="Qué total escribes">
+              <button type="button" aria-pressed={!d.beforeFee} onClick={() => up({ beforeFee: false })}>
+                {d.kind === 'SELL' ? 'Lo que entró a la cuenta' : 'Lo que salió de la cuenta'}
+              </button>
+              <button type="button" aria-pressed={d.beforeFee} onClick={() => up({ beforeFee: true })}>
+                {d.kind === 'SELL' ? 'El valor de la venta, antes de la comisión' : 'El valor de la compra, antes de la comisión'}
+              </button>
+            </div>
+          </div>
+        )}
         {d.kind !== 'WRITE_OFF' && !(PRICED.has(d.kind) && d.mode === 'unit') && (
           <label class="field">
-            {AMOUNT_LABEL[d.kind] ?? 'Monto'} ({ccy})
+            {PRICED.has(d.kind) && d.beforeFee ? (d.kind === 'SELL' ? 'Valor de la venta antes de comisión' : 'Valor de la compra antes de comisión') : (AMOUNT_LABEL[d.kind] ?? 'Monto')} ({ccy})
             <input inputMode="decimal" required value={d.amount} onInput={(e) => up({ amount: (e.target as HTMLInputElement).value })} />
-            {PRICED.has(d.kind) && qtyN && !qtyN.isZero() && amountN && (
+            {PRICED.has(d.kind) && qtyN && !qtyN.isZero() && typedCash && (
               <span class="small muted">
-                Equivale a {money(impliedPrice(d.kind, amountN, qtyN, feeN), ccy, 4)} por unidad{feeN ? ' sin la comisión' : ''}
+                Equivale a {money(impliedPrice(d.kind, typedCash, qtyN, feeN), ccy, 4)} por unidad{feeN ? ' sin la comisión' : ''}
               </span>
             )}
             {d.kind === 'SELL' && pos?.open && !pos.qty.isZero() && <span class="small muted">Costo promedio: {money(pos.cost.div(pos.qty), ccy, 4)} por unidad</span>}
@@ -378,14 +397,31 @@ export function TxForm({ editing, onDone }: { editing?: Transaction; onDone: () 
                     </span>
                   )}
                 </span>
-                <button type="button" class="link" onClick={() => up({ mode: 'total', amount: computed ? field(computed) : d.amount })}>
+                <button type="button" class="link" onClick={() => up({ mode: 'total', beforeFee: false, amount: computed ? field(computed) : d.amount })}>
                   El extracto dice otro total: escribirlo
                 </button>
               </>
             ) : (
-              <button type="button" class="link" onClick={() => up({ mode: 'unit' })}>
-                Calcular el total con cantidad y precio por unidad
-              </button>
+              <>
+                <span>
+                  {d.kind === 'BUY' ? 'Sale de la cuenta' : 'Entra a la cuenta'}: <strong class="num">{typedCash ? money(typedCash, ccy, 2) : '—'}</strong>
+                  {d.beforeFee && typedCash && feeN && !feeN.isZero() && (
+                    <span class="small muted">
+                      {' '}
+                      = {num(amountN!)} {d.kind === 'BUY' ? '+' : '−'} comisión {num(feeN)}
+                    </span>
+                  )}
+                  {!editing && !d.beforeFee && feeN && !feeN.isZero() && (
+                    <span class="small warn-ink">
+                      {' '}
+                      La comisión no se {d.kind === 'BUY' ? 'suma' : 'descuenta'}: este total ya debe ser lo que {d.kind === 'BUY' ? 'salió de' : 'entró a'} la cuenta. Si es el valor antes de la comisión, elige esa opción arriba.
+                    </span>
+                  )}
+                </span>
+                <button type="button" class="link" onClick={() => up({ mode: 'unit', beforeFee: false })}>
+                  Calcular el total con cantidad y precio por unidad
+                </button>
+              </>
             )}
           </div>
         )}

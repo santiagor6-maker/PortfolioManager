@@ -31,7 +31,7 @@ export const field = (x: Decimal): string => x.toFixed().replace('.', ',');
 /**
  * What leaves the account on a buy (units × price + fee) or reaches it on a sale (units × price − fee), to the cent
  * (half up). With `rate`, the price is in the asset's quote currency and is converted at the broker's rate: by
- * default `rate` is account currency per 1 of the quote currency (a Nagarro sale in euros on a dollar account: units ×
+ * default `rate` is account currency per 1 of the quote currency (a German stock sold in euros on a dollar account: units ×
  * EUR price × USD per EUR); `inverted` when it is typed the other way round, quote currency per 1 of the account's
  * (pesos per dollar), and the gross is divided by it. The fee is in the account's currency.
  */
@@ -40,6 +40,14 @@ export function tradeTotal(kind: string, qty: Decimal, price: Decimal, fee: Deci
   const gross = rate ? (inverted ? raw.div(rate) : raw.times(rate)) : raw;
   const f = fee ?? dec(0);
   return (kind === 'SELL' ? gross.minus(f) : gross.plus(f)).toDecimalPlaces(2);
+}
+
+/**
+ * The cash a typed buy or sale total moves: the total itself when it is what came in or went out, or, when it is the
+ * statement's value before the fee, that value − the fee for a sale and + the fee for a buy, to the cent.
+ */
+export function typedTradeCash(kind: string, total: Decimal, fee: Decimal | undefined, beforeFee: boolean): Decimal {
+  return beforeFee ? tradeTotal(kind, dec(1), total.abs(), fee) : total;
 }
 
 /** The price per unit (6 decimals) a buy's or sale's total implies: (|total| − fee) / units for a buy, (|total| + fee) / units for a sale. */

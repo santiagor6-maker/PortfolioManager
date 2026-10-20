@@ -83,8 +83,8 @@ test('record a buy, reject an oversell, record a sale', async ({ page }) => {
   await form.getByLabel(/^Comisión/).fill('');
   // The statement's total wins over units × price when they differ.
   await form.getByRole('button', { name: 'El extracto dice otro total: escribirlo' }).click();
-  await expect(form.getByLabel(/Total recibido/)).toHaveValue('1290');
-  await form.getByLabel(/Total recibido/).fill('1289,40');
+  await expect(form.getByLabel(/Total que entró a la cuenta/)).toHaveValue('1290');
+  await form.getByLabel(/Total que entró a la cuenta/).fill('1289,40');
   await expect(form.getByText(/Equivale a US\$\s128,94/)).toBeVisible();
   await form.getByRole('button', { name: 'Guardar' }).click();
   await expect(page.getByText('45 movimientos')).toBeVisible();
@@ -117,7 +117,7 @@ test('a stock quoted in euros on a dollar account asks the broker rate', async (
   await form.getByLabel('Fecha').fill('2025-06-12');
   await form.getByRole('combobox', { name: /^Cuenta/ }).selectOption('broker-usd');
   await form.getByRole('combobox', { name: /^Activo/ }).selectOption('__new__');
-  await form.getByLabel('Código', { exact: true }).fill('NA9');
+  await form.getByLabel('Código', { exact: true }).fill('EURCO');
   await form.getByLabel('Nombre').fill('Euro Co');
   await form.getByLabel('Moneda de cotización').fill('EUR');
   await form.getByLabel(/^Cantidad/).fill('10');
@@ -210,6 +210,42 @@ test('a dividend in the dollar broker stays as cash to invest; in the peso broke
 
   await page.getByRole('link', { name: 'Inversiones', exact: true }).click();
   expect(await cashOf('Bróker USD')).toBeCloseTo(usd0 + 12.5, 2);
+});
+
+test('a sale typed from the statement before the fee: the fee comes off the cash', async ({ page }) => {
+  await loadDemo(page);
+  const toNum = (t: string) => Number(t.replace(/[^\d,-]/g, '').replace(',', '.'));
+  const cashOf = async (name: string) => toNum(await page.getByRole('region', { name: 'Efectivo por cuenta' }).getByRole('row').filter({ hasText: name }).locator('td').last().innerText());
+  await page.getByRole('link', { name: 'Inversiones', exact: true }).click();
+  const cop0 = await cashOf('Bróker COP');
+
+  await page.getByRole('link', { name: 'Movimientos' }).click();
+  await page.getByRole('button', { name: '+ Registrar movimiento' }).click();
+  const form = page.getByRole('form', { name: 'Nuevo movimiento' });
+  await form.getByRole('combobox', { name: /^Tipo/ }).selectOption('SELL');
+  await form.getByLabel('Fecha').fill('2025-06-12');
+  await form.getByRole('combobox', { name: /^Cuenta/ }).selectOption('broker-cop');
+  await form.getByRole('combobox', { name: /^Activo/ }).selectOption('ANDES');
+  await form.getByLabel(/^Cantidad/).fill('1');
+  await form.getByRole('button', { name: 'El extracto dice otro total: escribirlo' }).click();
+  await form.getByLabel(/^Total que entró a la cuenta/).fill('20.000');
+  await form.getByLabel(/^Comisión/).fill('50');
+  // Typed as what came in, the fee is only noted: the form warns before it is saved that way.
+  await expect(form.locator('.trade-total')).toContainText('La comisión no se descuenta');
+  await form.getByRole('button', { name: 'El valor de la venta, antes de la comisión' }).click();
+  // 20.000 − 50 = 19.950 reach the account.
+  await expect(form.locator('.trade-total')).toContainText('Entra a la cuenta: $\u00a019.950');
+  // Going to units × price and back starts again from the cash, so the fee is never taken off twice.
+  await form.getByRole('button', { name: 'Calcular el total con cantidad y precio por unidad' }).click();
+  await form.getByLabel(/Precio de venta por unidad/).fill('20.000');
+  await form.getByRole('button', { name: 'El extracto dice otro total: escribirlo' }).click();
+  await expect(form.getByRole('button', { name: 'Lo que entró a la cuenta' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(form.locator('.trade-total')).toContainText('Entra a la cuenta: $\u00a019.950');
+  await form.getByRole('button', { name: /^Guardar/ }).click();
+  await expect(form).toHaveCount(0);
+
+  await page.getByRole('link', { name: 'Inversiones', exact: true }).click();
+  expect(await cashOf('Bróker COP')).toBeCloseTo(cop0 + 19_950, 2);
 });
 
 test('month-end close: enter a value, see the month result, close the month', async ({ page }, info) => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { dec } from '../src/domain/money.ts';
-import { editablePrice, field, impliedPrice, parseNum, rateCheck, rateQuote, storedRate, tradeTotal } from '../src/app/trade.ts';
+import { editablePrice, field, impliedPrice, parseNum, rateCheck, rateQuote, storedRate, tradeTotal, typedTradeCash } from '../src/app/trade.ts';
 import { FxTable } from '../src/domain/fx.ts';
 
 describe('a buy or sale entered as units × price', () => {
@@ -116,5 +116,18 @@ describe('a stock quoted in another currency than the account', () => {
     expect(tradeTotal('SELL', dec(1000), dec(2345), dec(1), dec(4100), true).toString()).toBe('570.95');
     // 3 at 40 CAD at 1,37 CAD per USD: 120 / 1,37 = 87,5912… + 0,35 = 87,9412… → 87,94 USD.
     expect(tradeTotal('BUY', dec(3), dec(40), dec('0.35'), dec('1.37'), true).toString()).toBe('87.94');
+  });
+});
+
+describe('a total typed from the statement', () => {
+  it('as what moved in the account, it is the cash; before the fee, the fee comes off a sale and onto a buy', () => {
+    // A sale of 1.000.000 before a 2.500 fee → 997.500 reached the account; typed as what came in, it stays.
+    expect(typedTradeCash('SELL', dec(1000000), dec(2500), true).toString()).toBe('997500');
+    expect(typedTradeCash('SELL', dec(997500), dec(2500), false).toString()).toBe('997500');
+    // A buy of 1.000,00 before a 1,99 fee takes 1.001,99 out.
+    expect(typedTradeCash('BUY', dec(1000), dec('1.99'), true).toString()).toBe('1001.99');
+    expect(typedTradeCash('BUY', dec(1000), undefined, true).toString()).toBe('1000');
+    // The price that cash implies is the gross price: (997.500 + 2.500) / 1.000 = 1.000.
+    expect(impliedPrice('SELL', dec(997500), dec(1000), dec(2500)).toString()).toBe('1000');
   });
 });

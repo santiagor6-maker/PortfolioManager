@@ -28,6 +28,10 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
 
 ## Registro
 
+**2026-10-20 — Total del extracto antes o después de la comisión**
+- Una venta registrada con el valor antes de comisión como total y la comisión aparte: la comisión solo se anotaba y el efectivo quedó por encima de lo que entró. El modo total pregunta ahora si el total es lo que entró/salió o el valor antes de la comisión (entonces se descuenta o suma), muestra lo que entra a la cuenta y avisa si hay comisión sin descontar.
+- Pendiente del usuario: editar esa venta para que el monto sea lo que entró.
+
 **2026-10-20 — Dividendos en dólares quedan como caja** (c46c6a2)
 - Pregunta del usuario: los dividendos de eToro e IBKR son ganancia de la acción (pestaña Dividendos, rentabilidad de la clase) y quedan como efectivo de la cuenta, sin contar como aporte. Respaldo v5 revisado: así están.
 - Arreglo: el formulario marcaba «Se pagó a mi cuenta bancaria» por defecto en toda cuenta; ahora solo en cuentas COP (decisión de la Fase 0) y lo dice al desmarcar.
@@ -37,8 +41,8 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
 - Pendiente del usuario: revisar sus movimientos (venta, transferencia y compra) con la tarjeta nueva o enviar un respaldo para revisarlos.
 
 **2026-10-08 — Compras y ventas en otra moneda (EUR, CAD) con la tasa del bróker** (d831cd5)
-- Si el activo cotiza en otra moneda que la cuenta (Nagarro en EUR en IBKR/eToro en USD), el formulario pide el precio en su moneda y la tasa que aplicó el bróker, como la muestra (USD por 1 EUR; CAD o COP por 1 USD); total = cantidad × precio convertido ± comisión, al centavo, y la nota guarda precio y tasa. La tasa guardada solo sirve de referencia (avisa si está invertida o a más de 5 %).
-- Activo nuevo: aviso de que fuera de EE. UU. el símbolo de Yahoo lleva sufijo de bolsa (NA9.DE).
+- Si el activo cotiza en otra moneda que la cuenta (una acción en EUR en una cuenta en USD), el formulario pide el precio en su moneda y la tasa que aplicó el bróker, como la muestra (USD por 1 EUR; CAD o COP por 1 USD); total = cantidad × precio convertido ± comisión, al centavo, y la nota guarda precio y tasa. La tasa guardada solo sirve de referencia (avisa si está invertida o a más de 5 %).
+- Activo nuevo: aviso de que fuera de EE. UU. el símbolo de Yahoo lleva sufijo de bolsa (.DE, .PA, .TO…).
 
 **2026-10-08 — Pestañas renombradas y fusionadas (11 → 10)** (9442200)
 - El usuario aprobó la propuesta: Resumen · Inversiones (Activos + Precios, con subvistas Posiciones y Precios y objetivos) · Mes a mes (Seguimiento) · Dividendos · Contra el mercado (Comparación) · Tesis (Indicadores) · Mi plan (Orientación) · Cierre del mes · Movimientos · Datos. Orden por frecuencia de uso.
