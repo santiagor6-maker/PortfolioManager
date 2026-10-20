@@ -28,7 +28,7 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
 
 ## Registro
 
-**2026-10-20 — Mes en curso en Mes a mes**
+**2026-10-20 — Mes en curso en Mes a mes** (a69ab08)
 - El usuario no veía octubre (sin cerrar) con lo que movió hoy. `tracking(…, { partial: true })` agrega el mes en curso como última columna, valorado al día con los últimos precios guardados (mes hasta hoy, no un cierre); solo Mes a mes lo pide: el cierre, el Resumen y los análisis siguen con fines de mes.
 - Columna y fila marcadas «en curso, al <fecha>», sin enlace al cierre; aviso de que los valores manuales llevan el último cierre (†). Si un precio guardado tiene más de 10 días, el mes en curso no se muestra (pide traer precios) en vez de valorar al costo como una caída falsa (`finance-reviewer`, 2 rondas).
 
