@@ -28,7 +28,7 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
 
 ## Registro
 
-**2026-10-20 — Total del extracto antes o después de la comisión**
+**2026-10-20 — Total del extracto antes o después de la comisión** (f5f51a8)
 - Una venta registrada con el valor antes de comisión como total y la comisión aparte: la comisión solo se anotaba y el efectivo quedó por encima de lo que entró. El modo total pregunta ahora si el total es lo que entró/salió o el valor antes de la comisión (entonces se descuenta o suma), muestra lo que entra a la cuenta y avisa si hay comisión sin descontar.
 - Pendiente del usuario: editar esa venta para que el monto sea lo que entró.
 
