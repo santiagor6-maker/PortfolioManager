@@ -28,7 +28,7 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
 
 ## Registro
 
-**2026-10-20 — Dividendos en dólares quedan como caja**
+**2026-10-20 — Dividendos en dólares quedan como caja** (c46c6a2)
 - Pregunta del usuario: los dividendos de eToro e IBKR son ganancia de la acción (pestaña Dividendos, rentabilidad de la clase) y quedan como efectivo de la cuenta, sin contar como aporte. Respaldo v5 revisado: así están.
 - Arreglo: el formulario marcaba «Se pagó a mi cuenta bancaria» por defecto en toda cuenta; ahora solo en cuentas COP (decisión de la Fase 0) y lo dice al desmarcar.
 
