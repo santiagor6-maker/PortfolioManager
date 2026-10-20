@@ -656,3 +656,5 @@ table.heatmap td.hm.p4, table.heatmap td.hm.n4 { color: #ffffff; }
 .trade-total .link { padding: 0; }
 .subtabs { margin-bottom: 14px; }
 .warn-ink { color: var(--warn-ink); }
+table.track thead th.in-course { color: var(--warn-ink); line-height: 1.15; }
+table.track thead th.in-course small { display: block; }

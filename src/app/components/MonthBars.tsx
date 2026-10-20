@@ -10,7 +10,8 @@ export interface MonthBar {
  * One column per month from a zero baseline: blue above, red below (diverging pair). Months without
  * a value stay empty. Year starts are labeled on the axis; hover shows the exact figure.
  */
-export function MonthBars({ items, format, label }: { items: MonthBar[]; format: (v: number) => string; label: string }) {
+/** `partial`: the date of a last item that is the month in course (month to date), labeled as such. */
+export function MonthBars({ items, format, label, partial }: { items: MonthBar[]; format: (v: number) => string; label: string; partial?: string }) {
   const [hover, setHover] = useState<number>();
   const box = useRef<HTMLDivElement>(null);
   const [W, setW] = useState(720);
@@ -64,7 +65,7 @@ export function MonthBars({ items, format, label }: { items: MonthBar[]; format:
       </svg>
       {h && hover !== undefined && (
         <div class="tip" style={`left:min(calc(${((L + hover * step) / W) * 100}% + 8px), calc(100% - 180px));top:4px`}>
-          <strong>{monthLabel(h.date)}</strong>
+          <strong>{h.date === partial ? `${monthLabel(h.date)} hasta el ${Number(h.date.slice(8))} (en curso)` : monthLabel(h.date)}</strong>
           <div>{h.value === null ? 'sin dato' : format(h.value)}</div>
         </div>
       )}

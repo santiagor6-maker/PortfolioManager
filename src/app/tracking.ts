@@ -80,6 +80,11 @@ export interface Tracking {
   total: TrackRow;
   /** Why the series stops before `to` (e.g. a missing exchange rate). */
   error?: string;
+  /**
+   * With `partial`, the last column is the month in course, valued at this date (not a month-end): month to date,
+   * never a close.
+   */
+  partial?: IsoDate;
 }
 
 interface Acc {
@@ -144,14 +149,17 @@ const RANK: Record<CellFlag, number> = { estimated: 1, stale: 2, cost: 3 };
 /**
  * Replays the ledger once and values every position at each month-end from the first transaction to `to`.
  * Rows are additive: classes = Σ assets; total = Σ classes + cash; exRealEstate = total − real-estate class.
+ * With `partial`, when `to` is inside a month, that month is added as a last column valued at `to` (month to date).
  */
-export function tracking(ctx: Context, ccy: Ccy, to: IsoDate): Tracking {
+export function tracking(ctx: Context, ccy: Ccy, to: IsoDate, opts: { partial?: boolean } = {}): Tracking {
   const sorted = sortLedger(ctx.ledger);
   const blank = (id: string, kind: RowKind, label: string): TrackRow => ({ id, kind, label, cells: [], flows: [] });
   if (!sorted.length || sorted[0]!.date > to) {
     return { ccy, months: [], assets: [], classes: [], cash: blank('cash', 'cash', 'Efectivo en cuentas'), exRealEstate: blank('ex', 'subtotal', 'Subtotal sin inmobiliario'), total: blank('total', 'total', 'TOTAL') };
   }
   const all = monthEnds(monthEnd(sorted[0]!.date), to);
+  const inCourse = opts.partial && monthEnd(to) !== to;
+  if (inCourse) all.push(to);
   const N = all.length;
   const pos = new Map<string, Acc>();
   const total = newAcc(N);
@@ -225,6 +233,13 @@ export function tracking(ctx: Context, ccy: Ccy, to: IsoDate): Tracking {
         if (!pos.has(k)) pos.set(k, newAcc(N));
         const a = pos.get(k)!;
         const v = valuePosition(ctx.book, p, d, ccy);
+        // The month in course is only shown at market: a quoted asset whose last stored close is too old to use
+        // would show at cost as if its price had fallen, so the column waits for the prices to be brought in.
+        if (inCourse && m === N - 1 && v.method === 'cost') {
+          const def = ctx.book.assets.get(p.asset);
+          const last = def?.pricing === 'market' && def.symbol ? ctx.book.prices.history?.(def.symbol).filter((x) => x.date <= d).at(-1) : undefined;
+          if (last) throw new MissingDataError(`Sin precio reciente de ${def!.name} al ${d} (el último es del ${last.date}); trae los precios del cierre en Datos`);
+        }
         a.value[m] = v.value;
         a.inCcy[m] = v.valuedIn;
         a.flags[m] =
@@ -297,6 +312,7 @@ export function tracking(ctx: Context, ccy: Ccy, to: IsoDate): Tracking {
     exRealEstate: { id: 'ex', kind: 'subtotal', label: 'Subtotal sin inmobiliario', cells: cells(exAcc, n), flows: exAcc.flows },
     total: { id: 'total', kind: 'total', label: 'TOTAL', cells: cells(total, n), flows: total.flows },
     ...(error ? { error } : {}),
+    ...(inCourse && months[months.length - 1] === to ? { partial: to } : {}),
   };
 }
 

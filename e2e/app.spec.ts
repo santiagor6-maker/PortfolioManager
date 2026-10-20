@@ -327,6 +327,21 @@ test('month-by-month tracking with total and subtotal without real estate', asyn
   await expect(page.locator('.close-title')).toHaveText('jun 2025');
 });
 
+test('Mes a mes shows the month in course, valued on the day, apart from the closes', async ({ page }, info) => {
+  // A day inside the demo's data: 20 Jun 2025, with May the last month-end.
+  await page.clock.setFixedTime(new Date('2025-06-20T15:00:00'));
+  await loadDemo(page);
+  await page.getByRole('link', { name: 'Mes a mes', exact: true }).click();
+  const grid = page.locator('table.track');
+  await expect(page.locator('.notice.info')).toContainText('La última columna es jun 2025 en curso, valorado al 20 jun 2025');
+  await expect(grid.locator('thead th.in-course')).toContainText('al 20');
+  await expect(grid.locator('thead th').last()).toHaveClass(/in-course/);
+  await expect(page.getByText('en curso, al 20 jun 2025')).toBeVisible();
+  // The composition defaults to that last column.
+  await expect(page.getByRole('region', { name: 'Clases al 20 jun 2025, mes en curso' })).toBeVisible();
+  if (shots) await page.screenshot({ path: `${shots}/mes-en-curso-${info.project.name}.png`, fullPage: true });
+});
+
 test('price tracking: set a target and see the progress; theme switch', async ({ page }, info) => {
   await loadDemo(page);
   await page.goto('#/precios'); // an old link still lands on Inversiones → Precios y objetivos

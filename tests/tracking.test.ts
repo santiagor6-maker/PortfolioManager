@@ -55,6 +55,57 @@ describe('month-by-month tracking, hand-verified', () => {
     expect(yearToDate(t.total, t.months, 1)).toBeCloseTo(1.05 * (1 - 90 / 2100) - 1, 12);
   });
 
+  it('the month in course is a last column valued on the day, month to date, only when asked', () => {
+    // On 15 Mar AAA is at 105 (last stored close 12 Mar) and a sale of 2 at 105 put 210 back in cash on 10 Mar.
+    const mid = { ...ctx, book: { ...ctx.book, prices: new SeriesPriceSource().set('AAA', [px('2025-01-31', 110), px('2025-02-28', 99), px('2025-03-12', 105)]) }, ledger: [...ctx.ledger, tx('2025-03-10', 'usd', 'SELL', 210, { asset: 'AAA', q: 2 })] };
+    const p = tracking(mid, 'USD', '2025-03-15', { partial: true });
+    expect(p.months).toEqual(['2025-01-31', '2025-02-28', '2025-03-15']);
+    expect(p.partial).toBe('2025-03-15');
+    const a = p.assets.find((r) => r.id === 'usd|AAA')!.cells[2]!;
+    // 8 × 105 = 840; flow −210; gain 840 − 990 + 210 = 60.
+    expect(a.value.toNumber()).toBe(840);
+    expect(a.flow.toNumber()).toBe(-210);
+    expect(a.gain.toNumber()).toBe(60);
+    // The closed months are the same as without it; without the option there is no March column.
+    expect(p.total.cells.slice(0, 2).map((c) => c.value.toNumber())).toEqual([2100, 2010]);
+    expect(p.total.cells[2]!.value.toNumber()).toBe(2070); // 840 + 1020 + 210
+    const plain = tracking(mid, 'USD', '2025-03-15');
+    expect(plain.months).toEqual(['2025-01-31', '2025-02-28']);
+    expect(plain.partial).toBeUndefined();
+    // On a month-end the month is a regular column, not one in course.
+    expect(tracking(mid, 'USD', '2025-02-28', { partial: true }).partial).toBeUndefined();
+    // Modified Dietz over the 15 days from 28 Feb: the sale of 10 Mar weighs 5/15 → −70; AAA 60 / (990 − 70); no external flow in the total.
+    expect(a.wflow.toNumber()).toBeCloseTo(-70, 12);
+    expect(a.r).toBeCloseTo(60 / 920, 12);
+    expect(p.total.cells[2]!.r).toBeCloseTo(60 / 2010, 12);
+  });
+
+  it('the month in course in pesos: each flow at its date\'s rate, the currency effect up to the day', () => {
+    // TRM 4.000 until 9 Mar, 4.200 from 10 Mar, 4.400 from 15 Mar.
+    const fx = new FxTable(100_000).set('COP', [
+      { date: '2025-01-01', perUsd: dec(4000), source: 'test' },
+      { date: '2025-03-10', perUsd: dec(4200), source: 'test' },
+      { date: '2025-03-15', perUsd: dec(4400), source: 'test' },
+    ]);
+    const mid = { ...ctx, book: { ...ctx.book, fx, prices: new SeriesPriceSource().set('AAA', [px('2025-01-31', 110), px('2025-02-28', 99), px('2025-03-12', 105)]) }, ledger: [...ctx.ledger, tx('2025-03-10', 'usd', 'SELL', 210, { asset: 'AAA', q: 2 })] };
+    const p = tracking(mid, 'COP', '2025-03-15', { partial: true });
+    const a = p.assets.find((r) => r.id === 'usd|AAA')!.cells[2]!;
+    // 840 × 4.400 − 990 × 4.000 + 210 × 4.200 = 3.696.000 − 3.960.000 + 882.000 = 618.000.
+    expect(a.gain.toNumber()).toBe(618000);
+    // 3.960.000 × (4.400/4.000 − 1) − 882.000 × (4.400/4.200 − 1) = 396.000 − 42.000.
+    expect(a.fx!.toNumber()).toBeCloseTo(354000, 6);
+    // Cash: 1.020 × 4.000 × 0,1 + 882.000 × (4.400/4.200 − 1) = 408.000 + 42.000.
+    expect(p.cash.cells[2]!.fx!.toNumber()).toBeCloseTo(450000, 6);
+  });
+
+  it('the month in course waits for prices: a close too old is never shown as a fall to cost', () => {
+    // On 25 Mar the last close (28 Feb) is over 10 days old: no March column, and the reason says what to do.
+    const p = tracking(ctx, 'USD', '2025-03-25', { partial: true });
+    expect(p.months).toEqual(['2025-01-31', '2025-02-28']);
+    expect(p.partial).toBeUndefined();
+    expect(p.error).toMatch(/Sin precio reciente de .* al 2025-03-25 \(el último es del 2025-02-28\)/);
+  });
+
   it('stops at the last month it can value and says why', () => {
     const cop = tracking(ctx, 'COP', '2025-02-28');
     expect(cop.months).toEqual([]);

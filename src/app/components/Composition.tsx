@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { bucketLabel } from '../analysis.ts';
 import { CASH_ID, classBase, composition, shareOf } from '../composition.ts';
 import type { Composition, Slice } from '../composition.ts';
-import { money, moneyShort, monthLabel, pct } from '../format.ts';
+import { date, money, moneyShort, monthLabel, pct } from '../format.ts';
 import type { Tracking } from '../tracking.ts';
 import { REAL_ESTATE } from '../tracking.ts';
 import { byClassOrder, classColor } from './Bars.tsx';
@@ -47,14 +47,14 @@ export function CompositionCard({ t, from, to }: { t: Tracking; from: number; to
         )}
       </div>
       <p class="small muted">
-        Participación de cada clase al cierre de cada mes, sobre {re || !hasRealEstate ? 'todo el portafolio' : 'el portafolio sin el inmobiliario'}. Toca un mes para ver su detalle; toca una clase para ver sus posiciones.
+        Participación de cada clase al cierre de cada mes{t.partial ? ` y al ${date(t.partial)} en el mes en curso` : ''}, sobre {re || !hasRealEstate ? 'todo el portafolio' : 'el portafolio sin el inmobiliario'}. Toca un mes para ver su detalle; toca una clase para ver sus posiciones.
       </p>
-      <ShareColumns series={series} buckets={buckets} selected={k - from} onPick={(i) => setPicked(from + i)} />
+      <ShareColumns series={series} buckets={buckets} selected={k - from} partial={t.partial} onPick={(i) => setPicked(from + i)} />
 
       <div class="comp-grid">
-        <section aria-label={`Clases al cierre de ${monthLabel(now.month)}`}>
+        <section aria-label={now.month === t.partial ? `Clases al ${date(now.month)}, mes en curso` : `Clases al cierre de ${monthLabel(now.month)}`}>
           <h3>
-            Por clase · {monthLabel(now.month)} <span class="muted">{money(now.total, t.ccy)}</span>
+            Por clase · {now.month === t.partial ? `al ${date(now.month)} (en curso)` : monthLabel(now.month)} <span class="muted">{money(now.total, t.ccy)}</span>
           </h3>
           <div class="comp-rows">
             {now.classes.map((c) => (
@@ -147,7 +147,7 @@ function ShareRow({ slice, label, sub, share, text, pressed, onClick }: { slice:
 }
 
 /** 100 % stacked columns, one per month-end, classes in their fixed slot order (cash last). */
-function ShareColumns({ series, buckets, selected, onPick }: { series: Composition[]; buckets: string[]; selected: number; onPick: (i: number) => void }) {
+function ShareColumns({ series, buckets, selected, partial, onPick }: { series: Composition[]; buckets: string[]; selected: number; partial?: string; onPick: (i: number) => void }) {
   const [hover, setHover] = useState<number>();
   const box = useRef<HTMLDivElement>(null);
   const [W, setW] = useState(720);
@@ -210,7 +210,7 @@ function ShareColumns({ series, buckets, selected, onPick }: { series: Compositi
       </svg>
       {c && hover !== undefined && (
         <div class="tip" style={`left:min(calc(${((L + shown * step + step) / W) * 100}% + 8px), calc(100% - 210px));top:4px`}>
-          <strong>{monthLabel(c.month)}</strong>
+          <strong>{c.month === partial ? `Al ${date(c.month)} (mes en curso)` : monthLabel(c.month)}</strong>
           {c.classes
             .slice()
             .sort((a, b) => classOrder(a.bucket, b.bucket))

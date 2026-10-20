@@ -1,3 +1,4 @@
+import { addDays } from '../../domain/dates.ts';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { ZERO } from '../../domain/money.ts';
 import type { Decimal } from '../../domain/money.ts';
@@ -118,7 +119,7 @@ export function Tracking() {
   const [range, setRange] = usePref<string>('track:range', '12');
   const [scope, setScope] = usePref<string>('track:scope', 'total');
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const t = useMemo(() => tracking(ctx, ccy, today()), [ctx, ccy]);
+  const t = useMemo(() => tracking(ctx, ccy, today(), { partial: true }), [ctx, ccy]);
   const closed = useMemo(() => new Set((data.closes ?? []).map((c) => c.month)), [data]);
   const wrap = useRef<HTMLDivElement>(null);
 
@@ -126,13 +127,16 @@ export function Tracking() {
   const last = t.months.length - 1;
   let from = 0;
   let to = last;
-  if (range === '12' || range === '24') from = Math.max(0, last - Number(range) + 1);
+  // «Últimos 12» are twelve closes, plus the month in course when there is one.
+  if (range === '12' || range === '24') from = Math.max(0, last - (t.partial ? 1 : 0) - Number(range) + 1);
   else if (range.startsWith('y')) {
     from = t.months.findIndex((m) => m.startsWith(range.slice(1)));
     to = t.months.findLastIndex((m) => m.startsWith(range.slice(1)));
     if (from < 0) [from, to] = [Math.max(0, last - 11), last];
   }
   const months = t.months.slice(from, to + 1);
+  // The in-course month could not be valued (e.g. prices not brought in yet): the series stops at the last month-end before it.
+  const inCourseMissing = !!t.error && !t.partial && t.months[last] === addDays(`${today().slice(0, 8)}01`, -1);
   const rows = useMemo(() => (last < 0 ? [] : orderedRows(t, from, to, collapsed)), [t, from, to, collapsed, last]);
 
   // Spreadsheet habit: the latest month is on the right, so start scrolled to it.
@@ -196,9 +200,22 @@ export function Tracking() {
           </div>
         </div>
       </div>
+      {t.partial && (
+        <div class="notice info" role="status">
+          La última columna es {monthLabel(t.partial)} en curso, valorado al {date(t.partial)} con los últimos precios guardados: su ganancia y rentabilidad son del mes hasta hoy, no un cierre. Los valores manuales (fondos, inmueble) que aún no tengan el de este mes llevan el del último cierre (†).
+        </div>
+      )}
       {t.error && (
         <div class="notice warn" role="status">
-          El seguimiento llega hasta {monthLabel(t.months[last]!)}. {t.error}. Cárgalo en <a href="#/datos">Datos</a> para ver el mes siguiente.
+          {inCourseMissing ? (
+            <>
+              {monthLabel(today())} en curso todavía no se puede mostrar. {t.error}.
+            </>
+          ) : (
+            <>
+              El seguimiento llega hasta {monthLabel(t.months[last]!)}. {t.error}. Cárgalo en <a href="#/datos">Datos</a> para ver el mes siguiente.
+            </>
+          )}
         </div>
       )}
 
@@ -216,7 +233,13 @@ export function Tracking() {
             <thead>
               <tr>
                 <th class="rowh">Activo</th>
-                {months.map((m) => (
+                {months.map((m) =>
+                  m === t.partial ? (
+                    <th class="n in-course" title={`Mes en curso: valores al ${date(m)}, no es un cierre`}>
+                      {monthLabel(m).split(' ')[0]}
+                      <small>al {Number(m.slice(8))}</small>
+                    </th>
+                  ) : (
                   <th class="n">
                     <a href={`#/cierre?mes=${m}`} title={closed.has(m) ? `Mes cerrado · ver el cierre` : 'Ver o hacer el cierre de este mes'}>
                       {monthLabel(m).split(' ')[0]}
@@ -226,7 +249,8 @@ export function Tracking() {
                       </small>
                     </a>
                   </th>
-                ))}
+                  ),
+                )}
               </tr>
             </thead>
             <tbody>
@@ -268,7 +292,7 @@ export function Tracking() {
             )}
             Ganancia del mes = valor al cierre − valor al cierre anterior − aportes netos (incluye dividendos y efecto cambiario). ✓ = mes cerrado.
           </span>
-          <button type="button" onClick={() => download(`seguimiento-${METRICS.find((m) => m.id === metric)!.label.toLowerCase().replace(/[^a-z]+/g, '-')}-${ccy}.csv`, toCsv(rows, months, from, metric))}>
+          <button type="button" onClick={() => download(`seguimiento-${METRICS.find((m) => m.id === metric)!.label.toLowerCase().replace(/[^a-z]+/g, '-')}-${ccy}.csv`, toCsv(rows, months.map((m) => (m === t.partial ? `${m} (en curso)` : m)), from, metric))}>
             Descargar para Excel
           </button>
         </div>
@@ -286,7 +310,7 @@ export function Tracking() {
           </div>
         </div>
         <p class="small muted">Rentabilidad de cada mes de {sel.kind === 'total' ? 'todo el portafolio' : sel.kind === 'subtotal' ? 'todo menos el inmobiliario' : sel.label}, como en tu hoja de consolidado.</p>
-        <MonthBars items={months.map((m, i) => ({ date: m, value: sel.cells[from + i]!.r }))} format={(v) => pct(v, 1)} label={`Rentabilidad mensual de ${sel.label}`} />
+        <MonthBars items={months.map((m, i) => ({ date: m, value: sel.cells[from + i]!.r }))} format={(v) => pct(v, 1)} label={`Rentabilidad mensual de ${sel.label}`} partial={t.partial} />
         <div class="table-wrap" style="margin-top:8px">
           <table>
             <thead>
@@ -312,7 +336,13 @@ export function Tracking() {
                   return (
                     <tr>
                       <td>
-                        <a href={`#/cierre?mes=${m}`}>{monthLabel(m)}</a>
+                        {m === t.partial ? (
+                          <>
+                            {monthLabel(m)} <span class="badge warn" style="margin-left:6px">en curso, al {date(m)}</span>
+                          </>
+                        ) : (
+                          <a href={`#/cierre?mes=${m}`}>{monthLabel(m)}</a>
+                        )}
                         {closed.has(m) && <span class="badge info" style="margin-left:6px">cerrado</span>}
                       </td>
                       <td class="n">{money(k > 0 ? sel.cells[k - 1]!.value : ZERO, ccy)}</td>
@@ -330,7 +360,7 @@ export function Tracking() {
         </div>
         <p class="small muted" style="margin-top:8px">
           Rend. del mes: ponderado por tiempo (Modified Dietz), el que se compara con un índice. XIRR a la fecha: ponderada por dinero, desde el primer aporte hasta ese cierre. Montos en {ccy}, cada aporte a la tasa de su fecha y cada
-          cierre a la TRM de fin de mes. Último cierre calculado: {date(t.months[last])}.
+          cierre a la TRM de fin de mes. Último cierre calculado: {date(t.partial ? t.months[last - 1] : t.months[last])}{t.partial && `; ${monthLabel(t.partial)} va hasta el ${date(t.partial)}`}.
         </p>
       </div>
     </>
