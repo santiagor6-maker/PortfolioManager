@@ -48,7 +48,8 @@ interface Draft {
   fee: string;
   note: string;
   estimated: boolean;
-  toBank: boolean;
+  /** The dividend went to the bank (leaves the portfolio). Unset: as the account usually does — peso brokers pay to the bank, dollar brokers keep it as cash. */
+  toBank?: boolean;
   external: boolean;
   toAccount: string;
   amountIn: string;
@@ -77,7 +78,6 @@ export function TxForm({ editing, onDone }: { editing?: Transaction; onDone: () 
     fee: editing?.fee ? field(editing.fee) : '',
     note: editing?.note ?? '',
     estimated: editing?.estimated ?? false,
-    toBank: true,
     external: true,
     toAccount: accounts[1]?.id ?? '',
     amountIn: '',
@@ -129,6 +129,7 @@ export function TxForm({ editing, onDone }: { editing?: Transaction; onDone: () 
   const stored = chosen?.pricing === 'market' && chosen.symbol ? ctx.book.prices.close(chosen.symbol, d.date) : undefined;
   const close = stored && stored.ccy === tradeCcy ? stored : undefined;
   const fxCheck = rateN && refRate ? rateCheck(rateN, refRate) : undefined;
+  const toBank = d.toBank ?? ccy === 'COP';
   const defaultEstimated = (assetId: string) => data.assets.find((a) => a.id === assetId)?.bucket === 'inmobiliario';
 
   function build(): { txs: Transaction[]; asset?: Asset } | string {
@@ -174,7 +175,7 @@ export function TxForm({ editing, onDone }: { editing?: Transaction; onDone: () 
     }
     const tx: Transaction = { ...base, id: editing?.id, type: d.kind, amount: signed, asset: assetId, ...(qty ? { qty } : {}), ...(fee ? { fee } : {}) };
     const txs = [tx];
-    if (!editing && d.kind === 'DIVIDEND' && d.toBank) {
+    if (!editing && d.kind === 'DIVIDEND' && toBank) {
       txs.push({ ...base, type: 'WITHDRAWAL', amount: amount.abs().neg(), note: 'dividendo pagado a la cuenta bancaria' });
     }
     if (!editing && d.kind === 'CAPITAL_CALL' && d.external) {
@@ -414,8 +415,8 @@ export function TxForm({ editing, onDone }: { editing?: Transaction; onDone: () 
       <div class="actions" style="margin-bottom:12px">
         {!editing && d.kind === 'DIVIDEND' && (
           <label style="display:flex;gap:6px;align-items:center">
-            <input type="checkbox" checked={d.toBank} onChange={(e) => up({ toBank: (e.target as HTMLInputElement).checked })} />
-            Se pagó a mi cuenta bancaria (sale del portafolio)
+            <input type="checkbox" checked={toBank} onChange={(e) => up({ toBank: (e.target as HTMLInputElement).checked })} />
+            Se pagó a mi cuenta bancaria (sale del portafolio){!toBank && ' — si no, queda como efectivo en la cuenta, disponible para invertir'}
           </label>
         )}
         {!editing && d.kind === 'CAPITAL_CALL' && (

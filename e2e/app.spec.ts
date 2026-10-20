@@ -185,6 +185,33 @@ test('pesos moved to the dollar broker and spent: the cash of each account follo
   expect(await cashOf('Bróker USD')).toBeCloseTo(usd0 + 10 - 4, 2);
 });
 
+test('a dividend in the dollar broker stays as cash to invest; in the peso broker it goes to the bank', async ({ page }) => {
+  await loadDemo(page);
+  const toNum = (t: string) => Number(t.replace(/[^\d,-]/g, '').replace(',', '.'));
+  const cashOf = async (name: string) => toNum(await page.getByRole('region', { name: 'Efectivo por cuenta' }).getByRole('row').filter({ hasText: name }).locator('td').last().innerText());
+  await page.getByRole('link', { name: 'Inversiones', exact: true }).click();
+  const usd0 = await cashOf('Bróker USD');
+
+  await page.getByRole('link', { name: 'Movimientos' }).click();
+  await page.getByRole('button', { name: '+ Registrar movimiento' }).click();
+  const form = page.getByRole('form', { name: 'Nuevo movimiento' });
+  const bank = form.getByRole('checkbox', { name: /Se pagó a mi cuenta bancaria/ });
+  await form.getByRole('combobox', { name: /^Tipo/ }).selectOption('DIVIDEND');
+  await form.getByLabel('Fecha').fill('2025-06-12');
+  await form.getByRole('combobox', { name: /^Cuenta/ }).selectOption('broker-cop');
+  await expect(bank).toBeChecked();
+  await form.getByRole('combobox', { name: /^Cuenta/ }).selectOption('broker-usd');
+  await expect(bank).not.toBeChecked();
+  await expect(form).toContainText('queda como efectivo en la cuenta, disponible para invertir');
+  await form.getByRole('combobox', { name: /^Activo/ }).selectOption('SMPL');
+  await form.getByLabel(/^Dividendo neto recibido/).fill('12,5');
+  await form.getByRole('button', { name: 'Guardar' }).click();
+  await expect(form).toHaveCount(0);
+
+  await page.getByRole('link', { name: 'Inversiones', exact: true }).click();
+  expect(await cashOf('Bróker USD')).toBeCloseTo(usd0 + 12.5, 2);
+});
+
 test('month-end close: enter a value, see the month result, close the month', async ({ page }, info) => {
   await loadDemo(page);
   await expect(page.getByRole('link', { name: 'Hacer el cierre' })).toBeVisible();

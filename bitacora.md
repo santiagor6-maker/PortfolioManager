@@ -28,6 +28,10 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
 
 ## Registro
 
+**2026-10-20 — Dividendos en dólares quedan como caja**
+- Pregunta del usuario: los dividendos de eToro e IBKR son ganancia de la acción (pestaña Dividendos, rentabilidad de la clase) y quedan como efectivo de la cuenta, sin contar como aporte. Respaldo v5 revisado: así están.
+- Arreglo: el formulario marcaba «Se pagó a mi cuenta bancaria» por defecto en toda cuenta; ahora solo en cuentas COP (decisión de la Fase 0) y lo dice al desmarcar.
+
 **2026-10-20 — Efectivo por cuenta en Inversiones** (3dbd22a)
 - El usuario vendió en eTrading, pasó la caja a USD en IBKR y compró allí, y no veía bajar la caja: la app solo mostraba el efectivo total. Inversiones → Posiciones muestra ahora el efectivo de cada cuenta en su moneda, para compararlo con el extracto, y explica que el paso entre cuentas es una «Transferencia entre cuentas».
 - Pendiente del usuario: revisar sus movimientos (venta, transferencia y compra) con la tarjeta nueva o enviar un respaldo para revisarlos.
