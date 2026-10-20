@@ -152,6 +152,39 @@ test('a stock quoted in euros on a dollar account asks the broker rate', async (
   await expect(form.locator('.trade-total')).toContainText('US$\u00a0500,00');
 });
 
+test('pesos moved to the dollar broker and spent: the cash of each account follows', async ({ page }) => {
+  await loadDemo(page);
+  const toNum = (t: string) => Number(t.replace(/[^\d,-]/g, '').replace(',', '.'));
+  const cashOf = async (name: string) => toNum(await page.getByRole('region', { name: 'Efectivo por cuenta' }).getByRole('row').filter({ hasText: name }).locator('td').last().innerText());
+  await page.getByRole('link', { name: 'Inversiones', exact: true }).click();
+  const cop0 = await cashOf('Bróker COP');
+  const usd0 = await cashOf('Bróker USD');
+
+  await page.getByRole('link', { name: 'Movimientos' }).click();
+  await page.getByRole('button', { name: '+ Registrar movimiento' }).click();
+  const form = page.getByRole('form', { name: 'Nuevo movimiento' });
+  await form.getByRole('combobox', { name: /^Tipo/ }).selectOption('TRANSFER');
+  await form.getByLabel('Fecha').fill('2025-06-12');
+  await form.getByRole('combobox', { name: /^Cuenta origen/ }).selectOption('broker-cop');
+  await form.getByLabel(/^Monto que sale/).fill('41.000');
+  await form.getByRole('combobox', { name: /^Cuenta destino/ }).selectOption('broker-usd');
+  await form.getByLabel(/^Monto que llega/).fill('10');
+  await form.getByRole('button', { name: 'Guardar' }).click();
+  await page.getByRole('button', { name: '+ Registrar movimiento' }).click();
+  await form.getByLabel('Fecha').fill('2025-06-12');
+  await form.getByRole('combobox', { name: /^Cuenta/ }).selectOption('broker-usd');
+  await form.getByRole('combobox', { name: /^Activo/ }).selectOption('SMPL');
+  await form.getByLabel(/^Cantidad/).fill('2');
+  await form.getByLabel(/Precio de compra por unidad/).fill('2');
+  await form.getByRole('button', { name: 'Guardar' }).click();
+  await expect(form).toHaveCount(0);
+
+  await page.getByRole('link', { name: 'Inversiones', exact: true }).click();
+  // The pesos leave the peso broker; the dollars arrive in the other and the buy spends 4 of them.
+  expect(await cashOf('Bróker COP')).toBeCloseTo(cop0 - 41_000, 2);
+  expect(await cashOf('Bróker USD')).toBeCloseTo(usd0 + 10 - 4, 2);
+});
+
 test('month-end close: enter a value, see the month result, close the month', async ({ page }, info) => {
   await loadDemo(page);
   await expect(page.getByRole('link', { name: 'Hacer el cierre' })).toBeVisible();

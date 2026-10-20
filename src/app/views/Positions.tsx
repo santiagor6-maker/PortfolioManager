@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'preact/hooks';
 import { daysBetween } from '../../domain/dates.ts';
+import { holdingsAt } from '../../domain/holdings.ts';
 import { sum } from '../../domain/money.ts';
 import { annualize } from '../../domain/returns.ts';
 import { analyze, bucketLabel } from '../analysis.ts';
@@ -48,6 +49,17 @@ export function Positions() {
       return { name: a.name, ccy: last.ccy, first, last, cum, annual: annualize(cum, first.date, last.date) };
     })
     .filter((x) => x !== undefined);
+
+  // Cash per account, in its own currency, as the broker's statement shows it: the ledger's buys, sales, dividends,
+  // deposits, withdrawals and transfers replayed to the date.
+  const cash = useMemo(() => {
+    try {
+      const h = holdingsAt(ctx.ledger, f.asOf);
+      return data.accounts.map((a) => ({ a, cash: h.cash.get(a.id) })).filter((x) => x.cash && !x.cash.isZero());
+    } catch {
+      return [];
+    }
+  }, [data, f.asOf]);
 
   return (
     <>
@@ -160,6 +172,30 @@ export function Positions() {
           Costo: promedio ponderado. Valor de inmuebles sobre planos = precio de lista − saldo por pagar. Costo y no realizada de activos en otra moneda se convierten a la tasa del {date(f.asOf)}.
         </p>
       </div>
+      {cash.length > 0 && (
+        <div class="card" role="region" aria-label="Efectivo por cuenta">
+          <div class="card-head">
+            <h2>Efectivo por cuenta</h2>
+            <span class="small muted">Al {date(f.asOf)}, en la moneda de cada cuenta: compáralo con el saldo del extracto</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <tbody>
+                {cash.map(({ a, cash: c }) => (
+                  <tr>
+                    <td>{a.name}</td>
+                    <td class={`n ${c!.isNeg() ? 'neg' : ''}`}>{money(c!, a.ccy)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p class="small muted" style="margin-top:8px">
+            Si una cuenta queda negativa o con plata que ya no está, falta registrar un movimiento: el dinero que pasa de una cuenta a otra (pesos de eTrading a dólares en Interactive Brokers) va como <strong>Transferencia entre cuentas</strong>, con lo que sale y lo que llega.
+            {cash.some((x) => x.cash!.isNeg()) && ' Hay cuentas en negativo.'}
+          </p>
+        </div>
+      )}
     </>
   );
 }

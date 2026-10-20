@@ -28,6 +28,10 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
 
 ## Registro
 
+**2026-10-20 — Efectivo por cuenta en Inversiones**
+- El usuario vendió en eTrading, pasó la caja a USD en IBKR y compró allí, y no veía bajar la caja: la app solo mostraba el efectivo total. Inversiones → Posiciones muestra ahora el efectivo de cada cuenta en su moneda, para compararlo con el extracto, y explica que el paso entre cuentas es una «Transferencia entre cuentas».
+- Pendiente del usuario: revisar sus movimientos (venta, transferencia y compra) con la tarjeta nueva o enviar un respaldo para revisarlos.
+
 **2026-10-08 — Compras y ventas en otra moneda (EUR, CAD) con la tasa del bróker** (d831cd5)
 - Si el activo cotiza en otra moneda que la cuenta (Nagarro en EUR en IBKR/eToro en USD), el formulario pide el precio en su moneda y la tasa que aplicó el bróker, como la muestra (USD por 1 EUR; CAD o COP por 1 USD); total = cantidad × precio convertido ± comisión, al centavo, y la nota guarda precio y tasa. La tasa guardada solo sirve de referencia (avisa si está invertida o a más de 5 %).
 - Activo nuevo: aviso de que fuera de EE. UU. el símbolo de Yahoo lleva sufijo de bolsa (NA9.DE).
