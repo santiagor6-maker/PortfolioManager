@@ -28,6 +28,10 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
 
 ## Registro
 
+**2026-11-03 — Clase de un ETF del exterior**
+- Un ETF de otro país quedó en Acciones COP: la app no deduce la clase, guarda la que se eligió al crear el activo (por defecto Acciones USD). Se corrige en Datos → «Corregir» → Clase; el cambio aplica a toda su historia.
+- Aviso al elegir Acciones COP para un activo de mercado sin sufijo .CL (formulario de activo nuevo y «Corregir»): las acciones y ETF del exterior van en Acciones USD aunque se compren en pesos.
+
 **2026-11-03 — Activos nuevos: precios desde la primera compra, corregir símbolo y precio a mano** (a880606)
 - El usuario agregó dos activos y «Traer precios del cierre» no los traía: solo agregaba días después del último precio guardado y un activo nuevo no tiene ninguno. Ahora un activo (o una moneda) sin datos empieza 10 días antes de su primer movimiento.
 - Datos → Estado de los datos: «Corregir» (símbolo de Yahoo, moneda, nombre, clase; un símbolo no cambia de moneda si ya tiene precios) y «Precio a mano» (cierre con fecha, fuente «manual (usuario)», mismas revisiones que una importación; no tapa los días de Yahoo anteriores). Inversiones dice por qué no puede valorar (p. ej. falta la tasa EUR) en vez de quedar vacía. `finance-reviewer`: 3 rondas.

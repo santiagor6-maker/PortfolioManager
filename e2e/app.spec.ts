@@ -258,6 +258,17 @@ test('a new asset without prices: fix its symbol and type a close by hand in Dat
   await form.getByRole('combobox', { name: /^Activo/ }).selectOption('__new__');
   await form.getByLabel('Código', { exact: true }).fill('NEWCO');
   await form.getByLabel('Nombre').fill('New Co');
+  // Acciones COP is for stocks listed in Colombia: a symbol without .CL there gets a hint toward Acciones USD.
+  const clase = form.getByRole('combobox', { name: /^Clase/ });
+  const hint = form.getByText('es para las acciones de la Bolsa de Colombia');
+  await expect(clase).toHaveValue('acciones_usd');
+  await clase.selectOption('acciones_cop');
+  await expect(hint).toBeVisible();
+  await form.getByLabel('Símbolo de cotización').fill('NEWCO.CL');
+  await expect(hint).toHaveCount(0);
+  await form.getByLabel('Símbolo de cotización').fill('');
+  await clase.selectOption('acciones_usd');
+  await expect(hint).toHaveCount(0);
   await form.getByLabel(/^Cantidad/).fill('2');
   await form.getByLabel(/Precio de compra por unidad/).fill('10');
   await form.getByRole('button', { name: 'Guardar' }).click();

@@ -6,6 +6,7 @@ import type { Asset, Transaction, TxType } from '../../domain/types.ts';
 import { validateTransaction } from '../../domain/validate.ts';
 import type { Issue } from '../../domain/validate.ts';
 import { bucketLabel } from '../analysis.ts';
+import { ClassHint } from './AssetFix.tsx';
 import { contextOf } from '../context.ts';
 import { date, money, num, today } from '../format.ts';
 import { TYPE_LABELS } from '../labels.ts';
@@ -290,6 +291,7 @@ export function TxForm({ editing, onDone }: { editing?: Transaction; onDone: () 
                   <option value={b}>{bucketLabel(b)}</option>
                 ))}
               </select>
+              <ClassHint bucket={d.newAsset.bucket} symbol={(d.newAsset.symbol || d.newAsset.id).trim()} pricing={d.newAsset.pricing} />
             </label>
             <label class="field">
               Moneda de cotización

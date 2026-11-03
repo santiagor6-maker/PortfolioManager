@@ -19,6 +19,15 @@ function lastMonthEnd(d: string): string {
   return end <= d ? end : new Date(Date.UTC(y, m - 1, 0)).toISOString().slice(0, 10);
 }
 
+/**
+ * Acciones COP holds the stocks listed on the Bolsa de Valores de Colombia; everything listed abroad, ETFs of other
+ * countries included, goes in Acciones USD. A hint when a market asset without the Colombian suffix is put in COP.
+ */
+export function ClassHint({ bucket, symbol, pricing }: { bucket: string; symbol: string; pricing: Asset['pricing'] }) {
+  if (bucket !== 'acciones_cop' || pricing !== 'market' || !symbol || symbol.endsWith('.CL')) return null;
+  return <span class="small warn-ink">{bucketLabel('acciones_cop')} es para las acciones de la Bolsa de Colombia (símbolo con .CL). Las del exterior, incluidos los ETF de otros países, van en {bucketLabel('acciones_usd')} aunque las compres en pesos.</span>;
+}
+
 /** Fix how an asset is quoted: Yahoo symbol, quote currency, name and class. Its movements are not touched. */
 export function AssetEditor({ asset, onDone }: { asset: Asset; onDone: () => void }) {
   const { data } = useDataset();
@@ -67,6 +76,7 @@ export function AssetEditor({ asset, onDone }: { asset: Asset; onDone: () => voi
               <option value={b}>{bucketLabel(b)}</option>
             ))}
           </select>
+          <ClassHint bucket={a.bucket} symbol={symbol} pricing={a.pricing} />
         </label>
       </div>
       {stored > 0 && symbol !== asset.symbol && (
