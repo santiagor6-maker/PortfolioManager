@@ -28,7 +28,7 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
 
 ## Registro
 
-**2026-11-03 — Clase de un ETF del exterior**
+**2026-11-03 — Clase de un ETF del exterior** (bf1bc5e)
 - Un ETF de otro país quedó en Acciones COP: la app no deduce la clase, guarda la que se eligió al crear el activo (por defecto Acciones USD). Se corrige en Datos → «Corregir» → Clase; el cambio aplica a toda su historia.
 - Aviso al elegir Acciones COP para un activo de mercado sin sufijo .CL (formulario de activo nuevo y «Corregir»): las acciones y ETF del exterior van en Acciones USD aunque se compren en pesos.
 
