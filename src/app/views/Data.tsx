@@ -3,6 +3,7 @@ import { toLedgerCsv } from '../../data/csv.ts';
 import { emptyDataset, parseDataset } from '../../data/json.ts';
 import type { Dataset } from '../../data/json.ts';
 import { holdingsAt } from '../../domain/holdings.ts';
+import type { Asset } from '../../domain/types.ts';
 import { bucketLabel } from '../analysis.ts';
 import { contextOf, coverage } from '../context.ts';
 import { download } from '../download.ts';
@@ -10,6 +11,7 @@ import { date, today } from '../format.ts';
 import { demoDataset, importBook, importFx, importLedger, importPrices, upsertAccount } from '../mutations.ts';
 import { getDataset, setDataset, useDataset } from '../store.ts';
 import { syncConfigured } from '../sync.ts';
+import { AssetEditor, ManualPrice } from './AssetFix.tsx';
 import { RefreshCard } from './RefreshCard.tsx';
 import { SyncCard } from './SyncCard.tsx';
 
@@ -51,8 +53,9 @@ export function DataView() {
     }
   };
 
+  const [fix, setFix] = useState<{ id: string; what: 'asset' | 'price' }>();
   const cov = coverage(data);
-  let open: { id: string; name: string; symbol?: string; bucket: string }[] = [];
+  let open: Asset[] = [];
   try {
     const h = holdingsAt(contextOf(data).ledger, today());
     open = data.assets.filter((a) => a.pricing === 'market' && [...h.positions.values()].some((p) => p.open && p.asset === a.id));
@@ -91,19 +94,38 @@ export function DataView() {
                 <th>Serie</th>
                 <th>Clase</th>
                 <th>Último dato</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
               {open.map((a) => {
                 const last = cov.prices.get(a.symbol ?? a.id);
+                const editing = fix?.id === a.id;
                 return (
-                  <tr>
-                    <td>
-                      {a.name} <span class="muted small">{a.symbol}</span>
-                    </td>
-                    <td>{bucketLabel(a.bucket)}</td>
-                    <td>{last ? date(last) : <span class="badge err">sin precios</span>}</td>
-                  </tr>
+                  <>
+                    <tr>
+                      <td>
+                        {a.name} <span class="muted small">{a.symbol}</span>
+                      </td>
+                      <td>{bucketLabel(a.bucket)}</td>
+                      <td>{last ? date(last) : <span class="badge err">sin precios</span>}</td>
+                      <td class="row-actions">
+                        <button type="button" class="link" aria-label={`Corregir ${a.name}`} onClick={() => setFix(editing && fix.what === 'asset' ? undefined : { id: a.id, what: 'asset' })}>
+                          Corregir
+                        </button>
+                        <button type="button" class="link" aria-label={`Precio a mano de ${a.name}`} onClick={() => setFix(editing && fix.what === 'price' ? undefined : { id: a.id, what: 'price' })}>
+                          Precio a mano
+                        </button>
+                      </td>
+                    </tr>
+                    {editing && (
+                      <tr>
+                        <td colSpan={4}>
+                          {fix.what === 'asset' ? <AssetEditor asset={a} onDone={() => setFix(undefined)} /> : <ManualPrice asset={a} onDone={() => setFix(undefined)} />}
+                        </td>
+                      </tr>
+                    )}
+                  </>
                 );
               })}
               {data.benchmarks.map((b) => (
@@ -118,7 +140,10 @@ export function DataView() {
             </tbody>
           </table>
         </div>
-        <p class="small muted" style="margin-top:8px">Los precios se actualizan con «Traer precios del cierre» (arriba) o importando un archivo de precios.</p>
+        <p class="small muted" style="margin-top:8px">
+          Los precios se actualizan con «Traer precios del cierre» (arriba) o importando un archivo de precios. Si un activo no trae precios, revisa su símbolo en <strong>Corregir</strong>
+          (debe ser el de Yahoo Finance, con el sufijo de la bolsa fuera de EE. UU.) o escribe el cierre con <strong>Precio a mano</strong>.
+        </p>
       </div>
 
       <div class="card">

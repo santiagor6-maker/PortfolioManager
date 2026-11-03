@@ -108,6 +108,7 @@ export function RefreshCard({ compact = false }: { compact?: boolean }) {
           </li>
         ))}
       </ul>
+      <p>Un activo que no trae precios se arregla en Datos → Estado de los datos: «Corregir» su símbolo o «Precio a mano».</p>
     </details>
   );
 
@@ -147,6 +148,7 @@ function Result({ results, applied }: { results: JobResult[]; applied: Applied }
       <div class={`notice ${failed.length ? 'warn' : 'info'}`} role="status">
         {parts.length === 0 ? 'No había días nuevos para agregar.' : `Se agregaron ${parts.join(' y ')}.`}
         {failed.length > 0 && ` ${failed.length === 1 ? '1 serie falló' : `${failed.length} series fallaron`} y queda${failed.length === 1 ? '' : 'n'} como estaba${failed.length === 1 ? '' : 'n'}: ${failed.map((r) => jobLabel(r.job)).join(', ')}.`}
+        {failed.some((r) => r.job.kind === 'price') && ' Si es un activo, revisa su símbolo en Datos → Estado de los datos → «Corregir», o escribe el cierre con «Precio a mano».'}
       </div>
       <details class="small">
       <summary>Ver el detalle por serie</summary>

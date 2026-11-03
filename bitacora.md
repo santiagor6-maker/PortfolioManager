@@ -28,6 +28,10 @@ Traza de lo que se ha hecho, con lo más reciente arriba. Cada evento lleva unos
 
 ## Registro
 
+**2026-11-03 — Activos nuevos: precios desde la primera compra, corregir símbolo y precio a mano**
+- El usuario agregó dos activos y «Traer precios del cierre» no los traía: solo agregaba días después del último precio guardado y un activo nuevo no tiene ninguno. Ahora un activo (o una moneda) sin datos empieza 10 días antes de su primer movimiento.
+- Datos → Estado de los datos: «Corregir» (símbolo de Yahoo, moneda, nombre, clase; un símbolo no cambia de moneda si ya tiene precios) y «Precio a mano» (cierre con fecha, fuente «manual (usuario)», mismas revisiones que una importación; no tapa los días de Yahoo anteriores). Inversiones dice por qué no puede valorar (p. ej. falta la tasa EUR) en vez de quedar vacía. `finance-reviewer`: 3 rondas.
+
 **2026-10-20 — Mes en curso en Mes a mes** (a69ab08)
 - El usuario no veía octubre (sin cerrar) con lo que movió hoy. `tracking(…, { partial: true })` agrega el mes en curso como última columna, valorado al día con los últimos precios guardados (mes hasta hoy, no un cierre); solo Mes a mes lo pide: el cierre, el Resumen y los análisis siguen con fines de mes.
 - Columna y fila marcadas «en curso, al <fecha>», sin enlace al cierre; aviso de que los valores manuales llevan el último cierre (†). Si un precio guardado tiene más de 10 días, el mes en curso no se muestra (pide traer precios) en vez de valorar al costo como una caída falsa (`finance-reviewer`, 2 rondas).

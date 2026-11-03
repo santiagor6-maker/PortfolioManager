@@ -658,3 +658,5 @@ table.heatmap td.hm.p4, table.heatmap td.hm.n4 { color: #ffffff; }
 .warn-ink { color: var(--warn-ink); }
 table.track thead th.in-course { color: var(--warn-ink); line-height: 1.15; }
 table.track thead th.in-course small { display: block; }
+.row-actions { white-space: nowrap; text-align: right; }
+.asset-fix { background: var(--surface-2); padding: 12px; border-radius: var(--radius); margin: 4px 0 8px; }

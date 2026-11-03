@@ -7,7 +7,13 @@ export default defineConfig({
   expect: { timeout: 3_000 },
   // The app runs from file://, whose storage is shared between contexts: run tests one at a time.
   workers: 1,
-  use: { baseURL: `file://${process.cwd()}/dist/index.html`, locale: 'es-CO', timezoneId: 'America/Bogota' },
+  use: {
+    baseURL: `file://${process.cwd()}/dist/index.html`,
+    locale: 'es-CO',
+    timezoneId: 'America/Bogota',
+    // A machine whose pre-installed Chromium is not the one this Playwright version expects can point to it.
+    ...(process.env.PW_CHROMIUM ? { launchOptions: { executablePath: process.env.PW_CHROMIUM } } : {}),
+  },
   projects: [
     { name: 'desktop', testIgnore: /sync\.spec/, use: { viewport: { width: 1280, height: 900 } } },
     { name: 'mobile', testIgnore: /sync\.spec/, use: { viewport: { width: 390, height: 844 }, hasTouch: true } },

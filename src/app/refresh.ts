@@ -55,6 +55,12 @@ export const BENCHMARK_SOURCES: Record<string, { yahoo: string; adjusted?: boole
   'BENCH:BTC': { yahoo: 'BTC-USD' },
 };
 
+/** Source of a close the user typed (Datos → Precio a mano): never a quote, so the source's own days are still asked for. */
+export const MANUAL_SOURCE = 'manual (usuario)';
+
+/** A series with nothing stored starts this many days before its first movement (a week of holidays still leaves a close). */
+const START_BEFORE_DAYS = 10;
+
 /** Calendar days of stored history a chained series is checked against before new days are added. */
 const OVERLAP_DAYS = 14;
 
@@ -84,7 +90,19 @@ export function refreshPlan(d: Dataset, today: IsoDate): RefreshPlan {
     /* an impossible ledger is reported elsewhere; refresh only what is still clearly in use */
   }
   const lastTx = new Map<string, IsoDate>();
-  for (const t of ctx.ledger) if (t.asset && (!lastTx.has(t.asset) || t.date > lastTx.get(t.asset)!)) lastTx.set(t.asset, t.date);
+  const firstTx = new Map<string, IsoDate>();
+  // First day a currency is needed: a movement in an account kept in it, or in an asset quoted in it.
+  const firstCcy = new Map<string, IsoDate>();
+  const need = (c: string | undefined, date: IsoDate) => {
+    if (c && (!firstCcy.has(c) || date < firstCcy.get(c)!)) firstCcy.set(c, date);
+  };
+  for (const t of ctx.ledger) {
+    need(ctx.book.accounts.get(t.account)?.ccy, t.date);
+    if (!t.asset) continue;
+    need(ctx.book.assets.get(t.asset)?.ccy, t.date);
+    if (!lastTx.has(t.asset) || t.date > lastTx.get(t.asset)!) lastTx.set(t.asset, t.date);
+    if (!firstTx.has(t.asset) || t.date < firstTx.get(t.asset)!) firstTx.set(t.asset, t.date);
+  }
   const lastRow = new Map<string, StoredPrice>();
   for (const p of d.prices) if (!lastRow.has(p.symbol) || p.date > lastRow.get(p.symbol)!.date) lastRow.set(p.symbol, p);
 
@@ -92,13 +110,18 @@ export function refreshPlan(d: Dataset, today: IsoDate): RefreshPlan {
   for (const a of d.assets) {
     if (a.pricing !== 'market' || !a.symbol || seen.has(a.symbol)) continue;
     const last = cov.prices.get(a.symbol);
+    // The source is asked from its own last close: a close typed by hand on a later day must not leave the days before it out.
+    const lastQuote = d.prices.filter((p) => p.symbol === a.symbol && p.source !== MANUAL_SOURCE).reduce<IsoDate | undefined>((x, p) => (!x || p.date > x ? p.date : x), undefined);
     // In use: still held, or traded after its last stored price.
     if (!openAssets.has(a.id) && !(lastTx.get(a.id) && (!last || lastTx.get(a.id)! > last))) continue;
     seen.add(a.symbol);
     if (!YAHOO_SYMBOL.test(a.symbol)) uncovered.push({ symbol: a.symbol, name: a.name, reason: 'Símbolo con un formato que Yahoo Finance no usa' });
-    else if (!last) uncovered.push({ symbol: a.symbol, name: a.name, reason: 'No hay ningún precio guardado para empezar: impórtalo en Datos' });
-    else if (!due(a.symbol, last, today)) current++;
-    else jobs.push({ kind: 'price', provider: 'yahoo', symbol: a.symbol, yahoo: a.symbol, name: a.name, ccy: a.ccy, after: last });
+    else {
+      // A new asset with no stored close starts a little before its first movement, so the day it was bought has a price.
+      const after = lastQuote ?? addDays(firstTx.get(a.id)!, -START_BEFORE_DAYS);
+      if (!due(a.symbol, after, today)) current++;
+      else jobs.push({ kind: 'price', provider: 'yahoo', symbol: a.symbol, yahoo: a.symbol, name: a.name, ccy: a.ccy, after });
+    }
   }
   for (const b of d.benchmarks) {
     const src = BENCHMARK_SOURCES[b.symbol];
@@ -114,7 +137,9 @@ export function refreshPlan(d: Dataset, today: IsoDate): RefreshPlan {
     }
   }
   for (const r of fxStatus(d, ctx, today)) {
-    const last = cov.fx.get(r.ccy);
+    // A currency with no stored rate (the first stock quoted in it) starts a little before the first movement that needs it.
+    const first = firstCcy.get(r.ccy);
+    const last = cov.fx.get(r.ccy) ?? (first ? addDays(first, -START_BEFORE_DAYS) : undefined);
     if (!last) uncovered.push({ symbol: `${r.ccy}/USD`, name: `Tasa ${r.ccy}`, reason: 'No hay ninguna tasa guardada para empezar: impórtalas en Datos' });
     else if (r.ccy === 'COP') {
       if (last >= today) current++;
@@ -256,7 +281,15 @@ const rowOf = (f: Finding) => Number(/^fila (\d+) /.exec(f.ref)?.[1] ?? 0) - 1;
 export function applyRefresh(d: Dataset, results: readonly JobResult[], today: IsoDate): Applied {
   const cov = coverage(d);
   const tag = <T>(rows: T[], i: number) => rows.map((row) => ({ row, i }));
-  const prices = results.flatMap((r, i) => tag(r.prices, i)).filter(({ row }) => row.date > (cov.prices.get(row.symbol) ?? ''));
+  // New days are those after the source's own last stored close; a close typed by hand on a later day neither hides
+  // the days before it nor is replaced.
+  const lastQuote = new Map<string, IsoDate>();
+  const stored = new Set<string>();
+  for (const p of d.prices) {
+    stored.add(`${p.symbol}|${p.date}`);
+    if (p.source !== MANUAL_SOURCE && (lastQuote.get(p.symbol) ?? '') < p.date) lastQuote.set(p.symbol, p.date);
+  }
+  const prices = results.flatMap((r, i) => tag(r.prices, i)).filter(({ row }) => row.date > (lastQuote.get(row.symbol) ?? '') && !stored.has(`${row.symbol}|${row.date}`));
   const fx = results.flatMap((r, i) => tag(r.fx, i)).filter(({ row }) => row.date > (cov.fx.get(row.ccy) ?? ''));
   const pf = checkPriceRows(d, prices.map((x) => x.row), today);
   const ff = checkFxRows(d, fx.map((x) => x.row), today);

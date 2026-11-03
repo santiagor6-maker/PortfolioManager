@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { emptyDataset, toStored } from '../src/data/json.ts';
 import type { Dataset } from '../src/data/json.ts';
-import { QuoteError, parseTrm, parseYahooAdjusted, parseYahooCloses, parseYahooFx } from '../src/data/quotes.ts';
+import { QuoteError, parseTrm, parseYahooAdjusted, parseYahooCloses, parseYahooFx, yahooFxSymbol } from '../src/data/quotes.ts';
 import { dec } from '../src/domain/money.ts';
-import { applyRefresh, quotesUrl, refreshPlan, runRefresh } from '../src/app/refresh.ts';
+import { MANUAL_SOURCE, applyRefresh, quotesUrl, refreshPlan, runRefresh } from '../src/app/refresh.ts';
 import type { JobResult } from '../src/app/refresh.ts';
 import { handle } from '../netlify/functions/quotes.mts';
 import { tx } from './helpers.ts';
@@ -200,6 +200,38 @@ describe('refreshPlan', () => {
     expect(decodeURIComponent(quotesUrl('/api/quotes', jobs))).toBe('/api/quotes?s=XRP-USD@2025-07-06&s=QQQ@2025-07-02');
   });
 
+  it('a new asset with no stored close starts 10 days before its first movement, and so does its new currency', () => {
+    const d = book();
+    // A first stock quoted in CAD, bought on Thursday 3 Jul: nothing stored for it nor for the CAD.
+    d.assets.push({ id: 'CA', name: 'Canada One', ccy: 'CAD', bucket: 'acciones_usd', pricing: 'market', symbol: 'CAONE.TO' });
+    d.ledger.push(toStored({ ...tx('2025-07-03', 'usd', 'BUY', -100, { asset: 'CA', q: 1 }), id: 'ca' }));
+    const plan = refreshPlan(d, TODAY);
+    expect(plan.jobs).toContainEqual({ kind: 'price', provider: 'yahoo', symbol: 'CAONE.TO', yahoo: 'CAONE.TO', name: 'Canada One', ccy: 'CAD', after: '2025-06-23' });
+    expect(plan.jobs).toContainEqual({ kind: 'fx', provider: 'yahoo', ccy: 'CAD', yahoo: yahooFxSymbol('CAD'), after: '2025-06-23' });
+    expect(plan.uncovered.map((u) => u.symbol)).toEqual(['BENCH:OTHER']);
+  });
+
+  it('a currency needed only by an account starts 10 days before that account\'s first movement', () => {
+    const d = book();
+    // A euro cash account with one deposit on 1 Jul and no euro rate stored (the euro stock is sold off the book).
+    d.accounts.push({ id: 'eur', name: 'EUR cash', ccy: 'GBP' });
+    d.ledger.push(toStored({ ...tx('2025-07-01', 'eur', 'DEPOSIT', 100, { ccy: 'GBP' }), id: 'gbp' }));
+    expect(refreshPlan(d, TODAY).jobs).toContainEqual({ kind: 'fx', provider: 'yahoo', ccy: 'GBP', yahoo: yahooFxSymbol('GBP'), after: '2025-06-21' });
+  });
+
+  it('a close typed by hand does not move where the source is asked from', () => {
+    const d = book();
+    // Yahoo's last close is 3 Jul; a close typed by hand on 7 Jul. The days after 3 Jul are still asked for.
+    d.prices.push({ symbol: 'USONE', date: '2025-07-07', close: '125', ccy: 'USD', source: MANUAL_SOURCE });
+    expect(refreshPlan(d, TODAY).jobs.find((j) => j.kind === 'price' && j.symbol === 'USONE')).toMatchObject({ after: '2025-07-03' });
+    // A new asset with only a typed close starts from its first movement (a fresh dataset: plans are cached per dataset).
+    const e = book();
+    e.assets.push({ id: 'CA', name: 'Canada One', ccy: 'CAD', bucket: 'acciones_usd', pricing: 'market', symbol: 'CAONE.TO' });
+    e.ledger.push(toStored({ ...tx('2025-07-03', 'usd', 'BUY', -100, { asset: 'CA', q: 1 }), id: 'ca' }));
+    e.prices.push({ symbol: 'CAONE.TO', date: '2025-07-07', close: '51', ccy: 'CAD', source: MANUAL_SOURCE });
+    expect(refreshPlan(e, TODAY).jobs.find((j) => j.kind === 'price' && j.symbol === 'CAONE.TO')).toMatchObject({ after: '2025-06-23' });
+  });
+
   it('a symbol Yahoo would not accept is listed, not sent', () => {
     const d = book();
     d.assets[0] = { ...d.assets[0]!, symbol: 'us one' };
@@ -339,6 +371,30 @@ describe('applyRefresh', () => {
     expect(r.next.prices.filter((p) => p.symbol === 'USONE').map((p) => p.date)).toEqual(['2025-07-03', '2025-07-04']);
     expect(r.added).toEqual([{ count: 1, last: '2025-07-04' }]);
     expect(r.rejected.map((f) => f.code)).toEqual(['CLOSE']);
+  });
+
+  it('the first closes of a new asset are added like any others', () => {
+    const d = book();
+    d.assets.push({ id: 'CA', name: 'Canada One', ccy: 'CAD', bucket: 'acciones_usd', pricing: 'market', symbol: 'CAONE.TO' });
+    const row = (date: string, close: string) => ({ symbol: 'CAONE.TO', date, close, ccy: 'CAD', source: 'yahoo' });
+    const r = applyRefresh(d, [ok({ prices: [row('2025-07-02', '50'), row('2025-07-03', '51')] })], TODAY);
+    expect(r.next.prices.filter((p) => p.symbol === 'CAONE.TO').map((p) => p.close)).toEqual(['50', '51']);
+    expect(r.rejected).toEqual([]);
+  });
+
+  it('a close typed by hand neither hides the source\'s days before it nor is replaced', () => {
+    const d = book();
+    // Yahoo's last close 3 Jul, a close typed by hand on 7 Jul: Yahoo's 4, 7 and 8 Jul come back.
+    d.prices.push({ symbol: 'USONE', date: '2025-07-07', close: '125', ccy: 'USD', source: MANUAL_SOURCE });
+    const row = (date: string, close: string) => ({ symbol: 'USONE', date, close, ccy: 'USD', source: 'yahoo' });
+    const r = applyRefresh(d, [ok({ prices: [row('2025-07-04', '121'), row('2025-07-07', '124'), row('2025-07-08', '126')] })], TODAY);
+    expect(r.next.prices.filter((p) => p.symbol === 'USONE').map((p) => [p.date, p.close, p.source])).toEqual([
+      ['2025-07-03', '120', 'yahoo'],
+      ['2025-07-07', '125', MANUAL_SOURCE],
+      ['2025-07-04', '121', 'yahoo'],
+      ['2025-07-08', '126', 'yahoo'],
+    ]);
+    expect(r.added).toEqual([{ count: 2, last: '2025-07-08' }]);
   });
 
   it('nothing new leaves the dataset untouched (same object: no save, no sync)', () => {

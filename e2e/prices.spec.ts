@@ -78,7 +78,7 @@ test('Traer precios del cierre: the missing closes come in from Yahoo and the TR
 
   await card.getByRole('button', { name: 'Traer precios del cierre' }).click();
   await expect(card.getByRole('status').filter({ hasText: 'Se agregaron' })).toHaveText(
-    'Se agregaron 4 precios hasta el 10 jul 2025 y 1 tasa hasta el 9 jul 2025. 1 serie falló y queda como estaba: Acme Industries (ACME).',
+    'Se agregaron 4 precios hasta el 10 jul 2025 y 1 tasa hasta el 9 jul 2025. 1 serie falló y queda como estaba: Acme Industries (ACME). Si es un activo, revisa su símbolo en Datos → Estado de los datos → «Corregir», o escribe el cierre con «Precio a mano».',
     { timeout: 10_000 },
   );  expect(asked.sort()).toEqual(['ACME@2025-07-08', 'ANDES@2025-07-08', 'SMPL@2025-07-08']);
   await card.locator('summary', { hasText: 'Ver el detalle' }).click();

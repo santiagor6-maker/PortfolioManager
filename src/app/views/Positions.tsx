@@ -77,6 +77,11 @@ export function Positions() {
           <input type="checkbox" checked={closed} onChange={(e) => setClosed((e.target as HTMLInputElement).checked)} /> Mostrar posiciones cerradas
         </label>
       </Filters>
+      {rep.error && (
+        <div class="notice err" role="alert">
+          No se pueden valorar las posiciones al {date(f.asOf)}: {rep.error}. Trae los precios y tasas en <a href="#/datos">Datos</a>, o corrige el activo allí («Corregir» o «Precio a mano»).
+        </div>
+      )}
       {listPrice.map((l) => (
         <div class="notice info">
           <strong>{l.name}</strong>: precio de lista {money(l.first.amount, l.ccy)} ({date(l.first.date)}) → {money(l.last.amount, l.ccy)} ({date(l.last.date)}) ={' '}

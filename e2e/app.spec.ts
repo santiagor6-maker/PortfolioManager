@@ -248,6 +248,82 @@ test('a sale typed from the statement before the fee: the fee comes off the cash
   expect(await cashOf('Bróker COP')).toBeCloseTo(cop0 + 19_950, 2);
 });
 
+test('a new asset without prices: fix its symbol and type a close by hand in Datos', async ({ page }) => {
+  await loadDemo(page);
+  await page.getByRole('link', { name: 'Movimientos' }).click();
+  await page.getByRole('button', { name: '+ Registrar movimiento' }).click();
+  const form = page.getByRole('form', { name: 'Nuevo movimiento' });
+  await form.getByLabel('Fecha').fill('2025-06-12');
+  await form.getByRole('combobox', { name: /^Cuenta/ }).selectOption('broker-usd');
+  await form.getByRole('combobox', { name: /^Activo/ }).selectOption('__new__');
+  await form.getByLabel('Código', { exact: true }).fill('NEWCO');
+  await form.getByLabel('Nombre').fill('New Co');
+  await form.getByLabel(/^Cantidad/).fill('2');
+  await form.getByLabel(/Precio de compra por unidad/).fill('10');
+  await form.getByRole('button', { name: 'Guardar' }).click();
+  await expect(form).toHaveCount(0);
+
+  await page.getByRole('navigation').getByRole('link', { name: 'Datos' }).click();
+  const row = page.getByRole('row').filter({ hasText: 'New Co' });
+  await expect(row).toContainText('sin precios');
+  const correct = async (symbol: string, ccy: string) => {
+    await row.getByRole('button', { name: 'Corregir New Co' }).click();
+    const fix = page.getByRole('form', { name: 'Corregir New Co' });
+    await fix.getByLabel('Moneda de cotización').fill(ccy);
+    await fix.getByLabel('Símbolo de Yahoo Finance').fill(symbol);
+    if (ccy !== 'USD' && !symbol.includes('.')) await expect(fix).toContainText('Fuera de EE. UU. lleva el sufijo de la bolsa');
+    await fix.getByRole('button', { name: 'Guardar' }).click();
+    await expect(row).toContainText(symbol);
+  };
+  const typeClose = async (ccy: string) => {
+    await row.getByRole('button', { name: 'Precio a mano de New Co' }).click();
+    const price = page.getByRole('form', { name: 'Precio a mano de New Co' });
+    await price.getByLabel('Fecha del cierre').fill('2025-06-30');
+    await price.getByLabel(`Precio de cierre (${ccy})`).fill('12,5');
+    await price.getByRole('button', { name: 'Guardar precio' }).click();
+    await expect(row).toContainText('30 jun 2025');
+  };
+
+  // Quoted in euros with no euro rate stored: Inversiones says why it cannot value, instead of an empty table.
+  await correct('NWCO.DE', 'EUR');
+  await typeClose('EUR');
+  await page.getByRole('link', { name: 'Inversiones', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('No se pueden valorar las posiciones');
+  await expect(page.getByRole('alert')).toContainText('EUR');
+
+  // As a dollar stock, with a close typed by hand, it is valued at that close.
+  await page.getByRole('navigation').getByRole('link', { name: 'Datos' }).click();
+  await correct('NWCO', 'USD');
+  await expect(row).toContainText('sin precios');
+  await typeClose('USD');
+
+  // The same close again changes nothing; a different one replaces it only on confirmation.
+  await row.getByRole('button', { name: 'Precio a mano de New Co' }).click();
+  const price = page.getByRole('form', { name: 'Precio a mano de New Co' });
+  await price.getByLabel('Fecha del cierre').fill('2025-06-30');
+  await price.getByLabel('Precio de cierre (USD)').fill('12,5');
+  await price.getByRole('button', { name: 'Guardar precio' }).click();
+  await expect(price.getByRole('alert')).toContainText('Ese cierre ya está guardado');
+  await price.getByLabel('Precio de cierre (USD)').fill('13');
+  await price.getByRole('button', { name: 'Guardar precio' }).click();
+  await expect(price.getByRole('alert')).toContainText('Reemplaza el precio guardado 12.5');
+  await expect(price).toBeVisible();
+  await price.getByRole('button', { name: 'Guardar de todos modos' }).click();
+  await expect(price).toHaveCount(0);
+
+  // A symbol's closes are in one currency: it cannot be switched to another under the same symbol.
+  await row.getByRole('button', { name: 'Corregir New Co' }).click();
+  const fix = page.getByRole('form', { name: 'Corregir New Co' });
+  await fix.getByLabel('Moneda de cotización').fill('EUR');
+  await fix.getByRole('button', { name: 'Guardar' }).click();
+  await expect(fix.getByRole('alert')).toContainText('NWCO ya tiene precios en USD: no puede cotizar en EUR');
+  await fix.getByRole('button', { name: 'Cancelar' }).click();
+
+  await page.getByRole('link', { name: 'Inversiones', exact: true }).click();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(page.getByRole('row').filter({ hasText: 'New Co' })).not.toContainText('al costo');
+});
+
 test('month-end close: enter a value, see the month result, close the month', async ({ page }, info) => {
   await loadDemo(page);
   await expect(page.getByRole('link', { name: 'Hacer el cierre' })).toBeVisible();
